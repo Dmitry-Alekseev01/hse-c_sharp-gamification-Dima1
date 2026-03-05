@@ -12,3 +12,4 @@ httpx
 passlib
 python-jose
 aiosqlite
+python-multipart
