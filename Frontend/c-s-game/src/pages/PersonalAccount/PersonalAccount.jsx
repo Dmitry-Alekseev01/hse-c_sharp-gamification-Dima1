@@ -1,63 +1,181 @@
-import React, { useState } from 'react';
+// import React, { useState } from 'react';
+// import { Link } from 'react-router-dom';
+// import './PersonalAccount.css';
+
+// const PersonalAccount = () => {
+//   const [userName] = useState(localStorage.getItem('userName') || 'Дмитрий Иванов');
+
+//   const userData = {
+//     login: 'dmitry_ivanov',
+//     registrationDate: '2024-01-15',
+//   };
+
+//   const formatDate = (dateString) => {
+//     const date = new Date(dateString);
+//     return date.toLocaleDateString('ru-RU', {
+//       day: 'numeric',
+//       month: 'long',
+//       year: 'numeric',
+//     });
+//   };
+
+//   return (
+//     <div className="personal-account-page">
+//       <div className="account-header">
+//         <h1>Личный кабинет</h1>
+//         <p className="account-subtitle">Управление вашей учетной записью и данными</p>
+//       </div>
+
+//       <div className="account-content">
+//         <div className="main-content-wrapper">
+//           <div className="user-info-card">
+//             <div className="user-avatar-section">
+//               <div className="user-avatar-large">Д</div>
+//               <div className="user-name-display">
+//                 <h2>{userName}</h2>
+//                 <span className="user-status">Ученик</span>
+//               </div>
+//             </div>
+
+//             <div className="user-details">
+//               <div className="detail-item">
+//                 <div className="detail-label">Имя пользователя:</div>
+//                 <div className="detail-value">{userName}</div>
+//               </div>
+
+//               <div className="detail-item">
+//                 <div className="detail-label">Логин:</div>
+//                 <div className="detail-value">
+//                   <span className="login-value">@{userData.login}</span>
+//                 </div>
+//               </div>
+
+//               <div className="detail-item">
+//                 <div className="detail-label">Дата регистрации:</div>
+//                 <div className="detail-value">
+//                   <span className="date-value">{formatDate(userData.registrationDate)}</span>
+//                 </div>
+//               </div>
+//             </div>
+
+//             <div className="account-actions">
+//               <Link to="/edit-profile" className="action-btn primary-btn">
+//                 Редактировать профиль
+//               </Link>
+//               <Link to="/change-password" className="action-btn secondary-btn">
+//                 Сменить пароль
+//               </Link>
+//             </div>
+//           </div>
+
+//           <div className="analytics-sidebar">
+//             <Link to="/analytics" className="analytics-link">
+//               <div className="analytics-preview-card">
+//                 <div className="analytics-preview-header">
+//                   <h3>Аналитика обучения</h3>
+//                 </div>
+//                 <p className="analytics-preview-text">
+//                   Посмотрите подробную статистику вашего прогресса
+//                 </p>
+
+//                 <div className="analytics-stats-preview">
+//                   <div className="preview-stat">
+//                     <div className="preview-stat-value">85%</div>
+//                     <div className="preview-stat-label">Общий прогресс</div>
+//                   </div>
+//                   <div className="preview-stat">
+//                     <div className="preview-stat-value">4/8</div>
+//                     <div className="preview-stat-label">Материалы</div>
+//                   </div>
+//                   <div className="preview-stat">
+//                     <div className="preview-stat-value">6/12</div>
+//                     <div className="preview-stat-label">Тесты</div>
+//                   </div>
+//                 </div>
+
+//                 <div className="view-analytics-btn">Подробная аналитика</div>
+//               </div>
+//             </Link>
+//           </div>
+//         </div>
+//       </div>
+//     </div>
+//   );
+// };
+
+// export default PersonalAccount;
+
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { fetchUserProfile, getToken, logoutUser } from '../../api/usersAPI';
 import './PersonalAccount.css';
 
 const PersonalAccount = () => {
-  const [userName] = useState(localStorage.getItem('userName') || 'Дмитрий Иванов');
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const userData = {
-    login: 'dmitry_ivanov',
-    registrationDate: '2024-01-15',
-  };
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const data = await fetchUserProfile();
+        setProfile(data);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (getToken()) loadProfile();
+    else setLoading(false);
+  }, []);
 
   const formatDate = (dateString) => {
+    if (!dateString) return '';
     const date = new Date(dateString);
-    return date.toLocaleDateString('ru-RU', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    });
+    return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
   };
+
+  if (loading) return <div className="loading">Загрузка профиля...</div>;
+  if (error) return <div className="error">Ошибка: {error}</div>;
+  if (!profile) return <div className="error">Пожалуйста, войдите в систему</div>;
 
   return (
     <div className="personal-account-page">
       <div className="account-header">
         <h1>Личный кабинет</h1>
-        <p className="account-subtitle">Управление вашей учетной записью и данными</p>
+        <p className="account-subtitle">Управление вашей учётной записью</p>
       </div>
-
       <div className="account-content">
         <div className="main-content-wrapper">
           <div className="user-info-card">
             <div className="user-avatar-section">
-              <div className="user-avatar-large">Д</div>
+              <div className="user-avatar-large">
+                {profile.full_name?.[0] || profile.username[0]}
+              </div>
               <div className="user-name-display">
-                <h2>{userName}</h2>
+                <h2>{profile.full_name || profile.username}</h2>
                 <span className="user-status">Ученик</span>
               </div>
             </div>
-
             <div className="user-details">
               <div className="detail-item">
                 <div className="detail-label">Имя пользователя:</div>
-                <div className="detail-value">{userName}</div>
+                <div className="detail-value">{profile.username}</div>
               </div>
-
               <div className="detail-item">
                 <div className="detail-label">Логин:</div>
                 <div className="detail-value">
-                  <span className="login-value">@{userData.login}</span>
+                  <span className="login-value">@{profile.username}</span>
                 </div>
               </div>
-
               <div className="detail-item">
                 <div className="detail-label">Дата регистрации:</div>
                 <div className="detail-value">
-                  <span className="date-value">{formatDate(userData.registrationDate)}</span>
+                  <span className="date-value">{formatDate(profile.created_at)}</span>
                 </div>
               </div>
             </div>
-
             <div className="account-actions">
               <Link to="/edit-profile" className="action-btn primary-btn">
                 Редактировать профиль
@@ -67,7 +185,6 @@ const PersonalAccount = () => {
               </Link>
             </div>
           </div>
-
           <div className="analytics-sidebar">
             <Link to="/analytics" className="analytics-link">
               <div className="analytics-preview-card">
@@ -77,7 +194,6 @@ const PersonalAccount = () => {
                 <p className="analytics-preview-text">
                   Посмотрите подробную статистику вашего прогресса
                 </p>
-
                 <div className="analytics-stats-preview">
                   <div className="preview-stat">
                     <div className="preview-stat-value">85%</div>
@@ -92,7 +208,6 @@ const PersonalAccount = () => {
                     <div className="preview-stat-label">Тесты</div>
                   </div>
                 </div>
-
                 <div className="view-analytics-btn">Подробная аналитика</div>
               </div>
             </Link>
