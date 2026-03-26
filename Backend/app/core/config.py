@@ -41,6 +41,7 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = Field("redis://redis:6379/0", env="REDIS_URL")
+    redis_port: int = Field(6379, env="REDIS_PORT")
 
     class Config:
         env_file = ".env"
