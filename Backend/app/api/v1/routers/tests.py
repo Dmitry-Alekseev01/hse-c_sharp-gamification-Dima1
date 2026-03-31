@@ -2,6 +2,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.access import get_manageable_material, get_manageable_test, get_visible_test
 from app.api.deps import get_db
 from app.cache.redis_cache import (
     TEST_CONTENT_TTL,
@@ -29,6 +30,23 @@ from app.repositories import question_repo
 router = APIRouter()
 
 
+async def _validate_related_materials(
+    db: AsyncSession,
+    current_user: User,
+    material_id: int | None,
+    material_ids: list[int] | None,
+) -> None:
+    candidate_ids = []
+    if material_id is not None:
+        candidate_ids.append(material_id)
+    if material_ids:
+        candidate_ids.extend(material_ids)
+
+    seen_ids = {candidate_id for candidate_id in candidate_ids if candidate_id is not None}
+    for candidate_id in seen_ids:
+        await get_manageable_material(db, candidate_id, current_user)
+
+
 @router.get("/", response_model=List[TestRead], status_code=status.HTTP_200_OK)
 async def list_tests(
     published_only: bool = True,
@@ -45,7 +63,8 @@ async def list_tests(
         if cached is not None:
             return cached
 
-    items = await test_repo.list_tests(db, published_only=published_only, limit=limit)
+    author_id = current_user.id if (not published_only and current_user.role == "teacher") else None
+    items = await test_repo.list_tests(db, published_only=published_only, limit=limit, author_id=author_id)
     if published_only:
         payload = [TestRead.model_validate(item).model_dump(mode="json") for item in items]
         await set(cache_key, payload, ttl=TESTS_LIST_TTL)
@@ -64,11 +83,7 @@ async def get_test(
         if cached is not None:
             return cached
 
-    t = await test_repo.get_test(db, test_id)
-    if not t:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
-    if not t.published and current_user.role not in {"teacher", "admin"}:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
+    t = await get_visible_test(db, test_id, current_user)
     if t.published:
         payload = TestRead.model_validate(t).model_dump(mode="json")
         await set(cache_key_test_detail(test_id), payload, ttl=TEST_DETAIL_TTL)
@@ -79,8 +94,9 @@ async def get_test(
 async def create_test(
     payload: TestCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("teacher", "admin")),
+    current_user: User = Depends(require_roles("teacher", "admin")),
 ):
+    await _validate_related_materials(db, current_user, payload.material_id, payload.material_ids)
     test = await test_repo.create_test(
         db,
         title=payload.title,
@@ -91,6 +107,7 @@ async def create_test(
         material_id=payload.material_id,
         material_ids=payload.material_ids,
         deadline=payload.deadline,
+        author_id=current_user.id,
     )
     await delete_pattern("tests:list:*")
     await delete_pattern("tests:detail:*")
@@ -105,8 +122,10 @@ async def update_test(
     test_id: int,
     payload: TestUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("teacher", "admin")),
+    current_user: User = Depends(require_roles("teacher", "admin")),
 ):
+    await get_manageable_test(db, test_id, current_user)
+    await _validate_related_materials(db, current_user, payload.material_id, payload.material_ids)
     test = await test_repo.update_test(db, test_id, **payload.model_dump(exclude_unset=True))
     if test is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
@@ -122,8 +141,9 @@ async def update_test(
 async def publish_test(
     test_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("teacher", "admin")),
+    current_user: User = Depends(require_roles("teacher", "admin")),
 ):
+    await get_manageable_test(db, test_id, current_user)
     test = await test_repo.update_test(db, test_id, published=True)
     if test is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
@@ -138,8 +158,9 @@ async def publish_test(
 async def hide_test(
     test_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("teacher", "admin")),
+    current_user: User = Depends(require_roles("teacher", "admin")),
 ):
+    await get_manageable_test(db, test_id, current_user)
     test = await test_repo.update_test(db, test_id, published=False)
     if test is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
@@ -154,8 +175,9 @@ async def hide_test(
 async def delete_test(
     test_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("teacher", "admin")),
+    current_user: User = Depends(require_roles("teacher", "admin")),
 ):
+    await get_manageable_test(db, test_id, current_user)
     deleted = await test_repo.delete_test(db, test_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
@@ -180,11 +202,7 @@ async def test_summary(
         if cached is not None:
             return cached
 
-    test = await test_repo.get_test(db, test_id)
-    if not test:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
-    if not test.published and not is_teacher:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
+    test = await get_test_or_summary_access(db, test_id, current_user)
 
     summary = await test_repo.get_test_summary(db, test_id)
     if test.published:
@@ -205,11 +223,7 @@ async def get_test_content(
         if cached is not None:
             return cached
 
-    test = await test_repo.get_test(db, test_id)
-    if not test:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
-    if not test.published and not is_teacher:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
+    test = await get_visible_test(db, test_id, current_user)
 
     questions = await question_repo.list_questions_for_test(db, test_id=test_id, limit=500, offset=0)
     payload = {
@@ -227,11 +241,7 @@ async def start_test_attempt(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    test = await test_repo.get_test(db, test_id)
-    if not test:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
-    if not test.published and current_user.role not in {"teacher", "admin"}:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
+    await get_visible_test(db, test_id, current_user)
 
     existing_attempt = await test_attempt_repo.get_active_attempt(db, current_user.id, test_id)
     if existing_attempt is not None:
@@ -245,11 +255,7 @@ async def list_my_test_attempts(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    test = await test_repo.get_test(db, test_id)
-    if not test:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
-    if not test.published and current_user.role not in {"teacher", "admin"}:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
+    await get_visible_test(db, test_id, current_user)
     return await test_attempt_repo.list_attempts_for_user(db, current_user.id, test_id=test_id)
 
 
@@ -264,8 +270,19 @@ async def complete_test_attempt(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
     if attempt.user_id != current_user.id and current_user.role not in {"teacher", "admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    if current_user.role == "teacher":
+        await get_manageable_test(db, attempt.test_id, current_user)
     if attempt.status == "completed":
         return attempt
     completed_attempt = await test_attempt_repo.complete_attempt(db, attempt)
     await analytics_repo.register_completed_attempt(db, completed_attempt.user_id)
     return completed_attempt
+
+
+async def get_test_or_summary_access(db: AsyncSession, test_id: int, current_user: User):
+    test = await get_visible_test(db, test_id, current_user)
+    if current_user.role == "teacher" and not test.published:
+        await get_manageable_test(db, test_id, current_user)
+    if current_user.role == "teacher" and not (test.author_id == current_user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    return test

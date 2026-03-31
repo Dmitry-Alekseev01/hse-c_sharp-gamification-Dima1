@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.models.answer import Answer
 from app.models.choice import Choice
 from app.models.question import Question
+from app.models.test_ import Test
 
 
 async def record_answer(session, user_id: int, test_id: int, question_id: int, payload: str, attempt_id: int | None = None) -> Answer:
@@ -147,10 +148,12 @@ async def get_pending_open_answers(
     offset: int = 0,
     test_id: int | None = None,
     user_id: int | None = None,
+    author_id: int | None = None,
 ):
     stmt = (
         select(Answer)
         .join(Question, Answer.question_id == Question.id)
+        .join(Test, Answer.test_id == Test.id)
         .options(selectinload(Answer.question), selectinload(Answer.user))
         .where(Question.is_open_answer.is_(True), Answer.score.is_(None))
         .order_by(Answer.created_at.asc(), Answer.id.asc())
@@ -161,6 +164,8 @@ async def get_pending_open_answers(
         stmt = stmt.where(Answer.test_id == test_id)
     if user_id is not None:
         stmt = stmt.where(Answer.user_id == user_id)
+    if author_id is not None:
+        stmt = stmt.where(Test.author_id == author_id)
 
     res = await session.execute(stmt)
     return res.scalars().all()

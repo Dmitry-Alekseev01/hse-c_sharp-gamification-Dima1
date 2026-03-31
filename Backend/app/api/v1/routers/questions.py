@@ -2,6 +2,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.access import get_manageable_test, get_visible_test
 from app.api.deps import get_db
 from app.cache.redis_cache import (
     QUESTION_LIST_TTL,
@@ -22,11 +23,12 @@ router = APIRouter()
 async def create_question(
     payload: QuestionCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("teacher", "admin")),
+    current_user: User = Depends(require_roles("teacher", "admin")),
 ):
     """
     Create a question. payload may include 'choices' list (value, ordinal, is_correct).
     """
+    await get_manageable_test(db, payload.test_id, current_user)
     q = await question_repo.create_question_with_choices(
         db,
         test_id=payload.test_id,
@@ -50,11 +52,7 @@ async def list_questions_for_test(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    test = await test_repo.get_test(db, test_id)
-    if not test:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
-    if not test.published and current_user.role not in {"teacher", "admin"}:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
+    test = await get_visible_test(db, test_id, current_user)
 
     cache_key = cache_key_question_list(test_id=test_id, limit=limit, offset=offset)
     if test.published:
@@ -78,11 +76,7 @@ async def get_question(
     q = await question_repo.get_question_with_choices(db, question_id)
     if not q:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
-    test = await test_repo.get_test(db, q.test_id)
-    if test is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test not found")
-    if not test.published and current_user.role not in {"teacher", "admin"}:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+    await get_visible_test(db, q.test_id, current_user)
     return q
 
 
@@ -90,10 +84,13 @@ async def get_question(
 async def delete_question(
     question_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("teacher", "admin")),
+    current_user: User = Depends(require_roles("teacher", "admin")),
 ):
     question = await question_repo.get_question_with_choices(db, question_id)
+    if question is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
     test_id = question.test_id if question is not None else None
+    await get_manageable_test(db, question.test_id, current_user)
     await question_repo.delete_question(db, question_id)
     if test_id is not None:
         await delete_pattern(f"questions:test:{test_id}:*")

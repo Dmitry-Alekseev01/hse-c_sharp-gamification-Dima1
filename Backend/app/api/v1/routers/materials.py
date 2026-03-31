@@ -3,6 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.access import get_manageable_material, get_manageable_test
 from app.api.deps import get_db
 from app.cache.redis_cache import (
     MATERIALS_LIST_TTL,
@@ -19,6 +20,15 @@ from app.schemas.material import MaterialCreate, MaterialRead, MaterialUpdate
 from app.repositories import material_repo
 
 router = APIRouter()
+
+
+async def _validate_related_tests(
+    db: AsyncSession,
+    current_user: User,
+    related_test_ids: list[int] | None,
+) -> None:
+    for test_id in {test_id for test_id in (related_test_ids or []) if test_id is not None}:
+        await get_manageable_test(db, test_id, current_user)
 
 
 @router.get("/", response_model=List[MaterialRead], status_code=status.HTTP_200_OK)
@@ -68,6 +78,7 @@ async def create_material(
     Create material. For now no auth check is performed here — consider adding later.
     """
     try:
+        await _validate_related_tests(db, current_user, payload.related_test_ids)
         m = await material_repo.create_material(
             db,
             title=payload.title,
@@ -92,8 +103,10 @@ async def update_material(
     material_id: int,
     payload: MaterialUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("teacher", "admin")),
+    current_user: User = Depends(require_roles("teacher", "admin")),
 ):
+    await get_manageable_material(db, material_id, current_user)
+    await _validate_related_tests(db, current_user, payload.related_test_ids)
     material = await material_repo.update_material(db, material_id, **payload.model_dump(exclude_unset=True))
     if material is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found")
@@ -108,8 +121,9 @@ async def update_material(
 async def delete_material(
     material_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles("teacher", "admin")),
+    current_user: User = Depends(require_roles("teacher", "admin")),
 ):
+    await get_manageable_material(db, material_id, current_user)
     deleted = await material_repo.delete_material(db, material_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found")
