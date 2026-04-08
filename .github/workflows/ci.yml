@@ -49,12 +49,14 @@ jobs:
 
       - name: Start services (detached)
         working-directory: ./Backend
-        run: docker compose up -d
+        run: docker compose up -d postgres redis app
 
-      - name: Dump container logs on startup failure
-        if: failure()
+      - name: Print service status and logs
+        if: always()
         working-directory: ./Backend
-        run: docker compose logs --no-color postgres redis app worker
+        run: |
+          docker compose ps
+          docker compose logs --no-color --tail=200 postgres redis app worker || true
 
       - name: Wait for app container to be ready
         working-directory: ./Backend
