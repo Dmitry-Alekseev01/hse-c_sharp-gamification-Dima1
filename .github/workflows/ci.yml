@@ -51,6 +51,11 @@ jobs:
         working-directory: ./Backend
         run: docker compose up -d
 
+      - name: Dump container logs on startup failure
+        if: failure()
+        working-directory: ./Backend
+        run: docker compose logs --no-color postgres redis app worker
+
       - name: Wait for app container to be ready
         working-directory: ./Backend
         run: |
