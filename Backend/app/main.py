@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from app.api.v1.routers import (
+    ai,
     analytics,
     answers,
     auth,
@@ -97,6 +98,7 @@ def create_app() -> FastAPI:
     app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(groups.router, prefix="/api/v1/groups", tags=["groups"])
+    app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai"])
     return app
 
 

@@ -66,4 +66,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return "answers", settings.rate_limit_answers
         if path.startswith("/api/v1/analytics/"):
             return "analytics", settings.rate_limit_analytics
+        if path.startswith("/api/v1/ai/"):
+            return "ai", settings.rate_limit_ai
         return "default", settings.rate_limit_default

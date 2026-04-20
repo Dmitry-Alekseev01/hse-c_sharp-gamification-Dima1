@@ -6,66 +6,80 @@ DESCRIPTION: application configuration via pydantic BaseSettings.
 - If DATABASE_URL is provided explicitly in env, it will be used as-is.
 TODO: In production use secrets manager and do not commit secrets to VCS.
 """
-from pydantic import Field, PostgresDsn
-from pydantic_settings import BaseSettings
-from typing import Optional
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     # app
-    app_env: str = Field("development", env="APP_ENV")
-    app_host: str = Field("0.0.0.0", env="APP_HOST")
-    app_port: int = Field(8000, env="APP_PORT")
-    secret_key: str = Field("replace-me", env="SECRET_KEY")
+    app_env: str = Field("development")
+    app_host: str = Field("0.0.0.0")
+    app_port: int = Field(8000)
+    secret_key: str = Field("replace-me-please-change")
 
     # DB - either DATABASE_URL or components
-    database_url: Optional[str] = Field(None, env="DATABASE_URL")
+    database_url: str | None = None
 
-    postgres_user: str = Field("postgres", env="POSTGRES_USER")
-    postgres_password: str = Field("postgres", env="POSTGRES_PASSWORD")
-    postgres_db: str = Field("app_db", env="POSTGRES_DB")
-    postgres_host: str = Field("postgres", env="POSTGRES_HOST")
-    postgres_port: int = Field(5432, env="POSTGRES_PORT")
-    db_pool_size: int = Field(10, env="DB_POOL_SIZE")
-    db_max_overflow: int = Field(20, env="DB_MAX_OVERFLOW")
-    db_pool_timeout_seconds: int = Field(30, env="DB_POOL_TIMEOUT_SECONDS")
-    db_pool_recycle_seconds: int = Field(1800, env="DB_POOL_RECYCLE_SECONDS")
-    db_pool_pre_ping: bool = Field(True, env="DB_POOL_PRE_PING")
+    postgres_user: str = Field("postgres")
+    postgres_password: str = Field("postgres")
+    postgres_db: str = Field("app_db")
+    postgres_host: str = Field("postgres")
+    postgres_port: int = Field(5432)
+    db_pool_size: int = Field(10)
+    db_max_overflow: int = Field(20)
+    db_pool_timeout_seconds: int = Field(30)
+    db_pool_recycle_seconds: int = Field(1800)
+    db_pool_pre_ping: bool = Field(True)
 
     # secret / auth
-    secret_key: str = Field("replace-me-please-change", env="SECRET_KEY")
-    algorithm: str = Field("HS256", env="ALGORITHM")
-    access_token_expire_minutes: int = Field(60 * 24, env="ACCESS_TOKEN_EXPIRE_MINUTES")
-    db_auto_create: bool = Field(False, env="DB_AUTO_CREATE")
+    algorithm: str = Field("HS256")
+    access_token_expire_minutes: int = Field(60 * 24)
+    db_auto_create: bool = Field(False)
 
     # OAuth2 settings (token url used by OAuth2PasswordBearer)
-    oauth2_token_url: str = Field("/api/v1/auth/token", env="OAUTH2_TOKEN_URL")
+    oauth2_token_url: str = Field("/api/v1/auth/token")
 
     # password hashing schemes (comma-separated in env, default bcrypt)
-    hash_schemes: str = Field("bcrypt", env="HASH_SCHEMES")
+    hash_schemes: str = Field("bcrypt")
 
     # Redis
-    redis_url: str = Field("redis://redis:6379/0", env="REDIS_URL")
-    redis_port: int = Field(6379, env="REDIS_PORT")
+    redis_url: str = Field("redis://redis:6379/0")
+    redis_port: int = Field(6379)
 
     # CORS
     cors_allow_origins: str = Field(
         "http://localhost:3002,http://127.0.0.1:3002,http://localhost:8080,http://127.0.0.1:8080",
-        env="CORS_ALLOW_ORIGINS",
     )
-    cors_allow_credentials: bool = Field(True, env="CORS_ALLOW_CREDENTIALS")
+    cors_allow_credentials: bool = Field(True)
 
     # Rate limiting
-    rate_limit_enabled: bool = Field(True, env="RATE_LIMIT_ENABLED")
-    rate_limit_window_seconds: int = Field(60, env="RATE_LIMIT_WINDOW_SECONDS")
-    rate_limit_default: int = Field(300, env="RATE_LIMIT_DEFAULT")
-    rate_limit_auth: int = Field(20, env="RATE_LIMIT_AUTH")
-    rate_limit_answers: int = Field(180, env="RATE_LIMIT_ANSWERS")
-    rate_limit_analytics: int = Field(120, env="RATE_LIMIT_ANALYTICS")
+    rate_limit_enabled: bool = Field(True)
+    rate_limit_window_seconds: int = Field(60)
+    rate_limit_default: int = Field(300)
+    rate_limit_auth: int = Field(20)
+    rate_limit_answers: int = Field(180)
+    rate_limit_analytics: int = Field(120)
+    rate_limit_ai: int = Field(30)
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    # AI / OpenRouter
+    ai_gamification_enabled: bool = Field(False)
+    ai_gamification_daily_quota_per_user: int = Field(20)
+    ai_gamification_max_source_chars: int = Field(12000)
+    ai_gamification_job_max_retries: int = Field(2)
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = Field("https://openrouter.ai/api/v1")
+    openrouter_model: str = Field("openrouter/auto")
+    openrouter_fallback_models: str = Field("")
+    openrouter_timeout_seconds: int = Field(30)
+    openrouter_max_retries: int = Field(2)
+    openrouter_site_url: str | None = None
+    openrouter_app_name: str = Field("hse-c-sharp-gamification")
 
     def get_database_url(self) -> str:
         """
@@ -85,6 +99,10 @@ class Settings(BaseSettings):
 
     def get_cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
+    def get_openrouter_fallback_models(self) -> list[str]:
+        models = [m.strip() for m in self.openrouter_fallback_models.split(",") if m.strip()]
+        return models
 
 
 settings = Settings()

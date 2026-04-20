@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 
@@ -58,7 +58,7 @@ async def list_attempts_for_user(session, user_id: int, test_id: int | None = No
 
 async def complete_attempt(session, attempt: TestAttempt) -> TestAttempt:
     if attempt.status != "completed":
-        now = datetime.utcnow()
+        now = datetime.now(UTC).replace(tzinfo=None)
         time_spent_seconds = None
         if attempt.started_at is not None:
             time_spent_seconds = max(int((now - attempt.started_at).total_seconds()), 0)
