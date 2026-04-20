@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from app.models.test_ import Test
 from app.models.test_attempt import TestAttempt
@@ -10,7 +10,7 @@ class AttemptPolicyError(ValueError):
 
 
 def utcnow() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def is_deadline_passed(test: Test, now: datetime | None = None) -> bool:

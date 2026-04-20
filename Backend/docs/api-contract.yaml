@@ -338,6 +338,149 @@ components:
         avg_score: { type: number, format: float, nullable: true }
         avg_time_seconds: { type: number, format: float, nullable: true }
 
+    AIGamifyRequest:
+      type: object
+      description: Draft request for AI-assisted gamification.
+      required: [source_type]
+      properties:
+        source_type:
+          type: string
+          enum: [material, question, raw_text]
+        source_id:
+          type: integer
+          nullable: true
+          description: Required for source_type=material|question.
+        raw_text:
+          type: string
+          nullable: true
+          description: Required for source_type=raw_text.
+        target_level:
+          type: string
+          nullable: true
+          enum: [beginner, intermediate, advanced]
+        language:
+          type: string
+          nullable: true
+          example: ru
+        style:
+          type: string
+          nullable: true
+          enum: [quest, mission, challenge, story]
+        tone:
+          type: string
+          nullable: true
+          enum: [neutral, friendly, energetic]
+        constraints:
+          type: array
+          nullable: true
+          items: { type: string }
+      anyOf:
+        - required: [source_id]
+        - required: [raw_text]
+
+    AIGamifyCreateResponse:
+      type: object
+      properties:
+        job_id: { type: integer }
+        status:
+          type: string
+          enum: [pending, running]
+
+    AIGamifyDraft:
+      type: object
+      properties:
+        draft_title: { type: string }
+        story_frame: { type: string }
+        task_goal: { type: string }
+        game_rules:
+          type: array
+          items: { type: string }
+        hints:
+          type: array
+          items: { type: string }
+        rewards:
+          type: object
+          properties:
+            xp: { type: integer, nullable: true }
+            badges:
+              type: array
+              items: { type: string }
+        acceptance_criteria:
+          type: array
+          items: { type: string }
+        teacher_notes: { type: string, nullable: true }
+
+    AIGamifyJobRead:
+      type: object
+      properties:
+        job_id: { type: integer }
+        status:
+          type: string
+          enum: [pending, running, completed, failed, applied]
+        input:
+          type: object
+          additionalProperties: true
+        draft:
+          allOf:
+            - $ref: '#/components/schemas/AIGamifyDraft'
+          nullable: true
+        model: { type: string, nullable: true }
+        provider: { type: string, nullable: true }
+        usage:
+          type: object
+          nullable: true
+          additionalProperties: true
+        latency_ms: { type: integer, nullable: true }
+        error: { type: string, nullable: true }
+
+    AIGamifyJobListRead:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AIGamifyJobRead' }
+        limit: { type: integer }
+        offset: { type: integer }
+
+    AIGamifyApplyRequest:
+      type: object
+      required: [target_type, target_id]
+      properties:
+        target_type:
+          type: string
+          enum: [material, question]
+        target_id: { type: integer }
+        apply_mode:
+          type: string
+          enum: [replace, append]
+          default: append
+
+    AIGamifyApplyResponse:
+      type: object
+      properties:
+        job_id: { type: integer }
+        status:
+          type: string
+          enum: [applied]
+        updated_entity:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [material, question]
+            id: { type: integer }
+
+    AIGamifyOpsMetricsRead:
+      type: object
+      properties:
+        queued_jobs: { type: integer }
+        dead_letter_jobs: { type: integer }
+        jobs_processed: { type: integer }
+        jobs_completed: { type: integer }
+        jobs_failed: { type: integer }
+        jobs_retried: { type: integer }
+        jobs_semantic_fallback_used: { type: integer }
+
 paths:
   /health/live:
     get:
@@ -765,3 +908,129 @@ paths:
       summary: Create group
       responses:
         '201': { description: Group created }
+
+  /api/v1/ai/gamify:
+    get:
+      summary: List AI gamification jobs (teacher/admin)
+      description: >
+        Returns jobs for current user. Admin can view all jobs.
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum: [pending, running, completed, failed, applied]
+        - in: query
+          name: source_type
+          required: false
+          schema:
+            type: string
+            enum: [material, question, raw_text]
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyJobListRead' }
+        '403': { description: Insufficient permissions }
+        '429': { description: AI rate limit exceeded }
+    post:
+      summary: Create AI gamification job (teacher/admin)
+      description: >
+        Starts async AI generation for gamified content and returns job_id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIGamifyRequest' }
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyCreateResponse' }
+        '400': { description: Invalid source payload }
+        '403': { description: Insufficient permissions }
+        '429': { description: AI rate limit or daily quota exceeded }
+        '503': { description: AI provider/quota backend unavailable }
+
+  /api/v1/ai/gamify/{job_id}:
+    get:
+      summary: Read AI gamification job status/result
+      description: Poll generation state and retrieve draft payload.
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyJobRead' }
+        '403': { description: Insufficient permissions }
+        '404': { description: Job not found }
+        '429': { description: AI rate limit exceeded }
+
+  /api/v1/ai/gamify/{job_id}/retry:
+    post:
+      summary: Retry failed AI gamification job
+      description: Re-enqueues a failed job back to AI queue.
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema: { type: integer }
+      responses:
+        '202':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyCreateResponse' }
+        '403': { description: Insufficient permissions }
+        '404': { description: Job not found }
+        '409': { description: Only failed jobs can be retried }
+        '429': { description: AI rate limit exceeded }
+        '503': { description: Retry enqueue backend unavailable }
+
+  /api/v1/ai/gamify/{job_id}/apply:
+    post:
+      summary: Apply completed AI draft to target entity (teacher/admin)
+      description: Applies reviewed AI output to material/question.
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIGamifyApplyRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyApplyResponse' }
+        '400': { description: Draft not applicable to selected target }
+        '403': { description: Insufficient permissions }
+        '404': { description: Job not found }
+        '409': { description: Job is not completed yet or already applied to a different target }
+        '429': { description: AI rate limit exceeded }
+
+  /api/v1/ai/ops/metrics:
+    get:
+      summary: AI operational metrics (admin)
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyOpsMetricsRead' }
+        '403': { description: Admin role required }

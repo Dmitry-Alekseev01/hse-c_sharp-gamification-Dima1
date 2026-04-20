@@ -15,3 +15,4 @@ from app.models import test_attempt  # noqa: F401
 from app.models import group  # noqa: F401
 from app.models import material_block  # noqa: F401
 from app.models import material_attachment  # noqa: F401
+from app.models import ai_gamification_job  # noqa: F401

@@ -13,3 +13,4 @@ passlib
 python-jose
 aiosqlite
 python-multipart
+pyyaml

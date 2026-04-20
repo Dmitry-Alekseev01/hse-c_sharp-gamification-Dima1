@@ -6,7 +6,7 @@ Orchestration service for answers:
 - invalidate cache
 - queue open-answer jobs for manual grading
 """
-from datetime import datetime
+from datetime import UTC, datetime
 import json
 from typing import Optional
 
@@ -122,7 +122,7 @@ async def manual_grade_open_answer(session, answer_id: int, grader_id: int, scor
     previous_score = float(answer.score or 0.0)
     answer.score = normalized_score
     answer.graded_by = grader_id
-    answer.graded_at = datetime.utcnow()
+    answer.graded_at = datetime.now(UTC).replace(tzinfo=None)
     await session.flush()
     await session.refresh(answer)
 

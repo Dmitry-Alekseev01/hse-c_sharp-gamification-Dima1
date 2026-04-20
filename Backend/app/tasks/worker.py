@@ -12,6 +12,7 @@ from app.cache.redis_cache import (
 from app.db.session import AsyncSessionLocal
 from app.models.answer import Answer
 from app.repositories import analytics_repo, test_attempt_repo
+from app.services.ai_gamification_service import AI_GAMIFY_QUEUE, process_ai_gamification_job
 
 logger = logging.getLogger("worker")
 
@@ -84,11 +85,11 @@ async def process_answer_postprocess(job_payload: str) -> None:
 
 async def run_worker() -> None:
     r = get_redis_client()
-    logger.info("Worker started: polling grading:open and answers:postprocess")
+    logger.info("Worker started: polling grading:open, answers:postprocess and %s", AI_GAMIFY_QUEUE)
     while True:
         try:
             # BLPOP returns tuple (key, value) or None
-            item = await r.blpop(["grading:open", "answers:postprocess"], timeout=5)
+            item = await r.blpop(["grading:open", "answers:postprocess", AI_GAMIFY_QUEUE], timeout=5)
             if not item:
                 # timeout - loop again (allows graceful shutdown)
                 await asyncio.sleep(0.1)
@@ -98,6 +99,14 @@ async def run_worker() -> None:
                 await process_job(payload)
             elif queue_name == "answers:postprocess":
                 await process_answer_postprocess(payload)
+            elif queue_name == AI_GAMIFY_QUEUE:
+                try:
+                    parsed = json.loads(payload)
+                    job_id = int(parsed["job_id"])
+                except Exception:
+                    logger.exception("Invalid AI job payload: %s", payload)
+                    continue
+                await process_ai_gamification_job(job_id)
         except asyncio.CancelledError:
             logger.info("Worker cancelled, exiting")
             break

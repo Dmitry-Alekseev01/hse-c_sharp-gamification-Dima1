@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import case, desc, func, select, text
@@ -35,7 +35,7 @@ def _recalculate_streak(last_active: datetime | None, current_streak: int, now: 
 
 
 async def _sync_level_and_activity(session: AsyncSession, analytics: Analytics, *, mark_active: bool) -> None:
-    now = datetime.utcnow()
+    now = datetime.now(UTC).replace(tzinfo=None)
     if mark_active:
         analytics.streak_days = _recalculate_streak(analytics.last_active, int(analytics.streak_days or 0), now)
         analytics.last_active = now
