@@ -45,7 +45,7 @@ class UserRead(BaseModel):
     id: int
     username: str
     full_name: str | None
-    role: str
+    role: UserRole
     created_at: datetime | None = None
 
     # pydantic v2: enable reading from SQLAlchemy objects
