@@ -14,17 +14,18 @@ const Tests = () => {
       try {
         const data = await fetchTests();
         setTests(data);
-        // Загружаем результаты по каждому тесту (если есть)
         const scoresMap = {};
         await Promise.all(
           data.map(async (test) => {
             try {
               const answers = await fetchUserAnswers(test.id);
-              // Предположим, что ответы приходят с полем score
-              const userScore = answers.reduce((sum, ans) => sum + (ans.score || 0), 0);
-              scoresMap[test.id] = { userScore, maxScore: test.max_score };
+              // Проверяем, что есть хотя бы один ответ
+              if (answers && answers.length > 0) {
+                const userScore = answers.reduce((sum, ans) => sum + (ans.score || 0), 0);
+                scoresMap[test.id] = { userScore, maxScore: test.max_score };
+              }
             } catch (e) {
-              // Если нет ответов или ошибка, игнорируем
+              // Нет ответов – тест не пройден
             }
           })
         );
@@ -63,10 +64,16 @@ const Tests = () => {
   const getStatusBadge = (test) => {
     const now = new Date();
     const deadlineDate = test.deadline ? new Date(test.deadline) : null;
-    const hasCompleted = userScores[test.id]?.userScore !== undefined;
+    const hasCompleted = userScores[test.id] !== undefined;
     if (hasCompleted) return { text: 'Завершен', class: 'status-completed' };
     if (deadlineDate && now > deadlineDate) return { text: 'Просрочен', class: 'status-overdue' };
     return { text: 'Не начат', class: 'status-not-started' };
+  };
+
+  const handleViewResults = (testId, userScore, maxScore) => {
+    const percent = Math.round((userScore / maxScore) * 100);
+    alert(`Ваш результат: ${userScore}/${maxScore} (${percent}%)`);
+    // Здесь можно открыть модальное окно или перейти на страницу результатов
   };
 
   if (loading) return <div className="loading">Загрузка тестов...</div>;
@@ -105,7 +112,8 @@ const Tests = () => {
       <div className="tests-grid">
         {tests.map((test) => {
           const statusBadge = getStatusBadge(test);
-          const userScore = userScores[test.id]?.userScore;
+          const scoreInfo = userScores[test.id];
+          const userScore = scoreInfo?.userScore;
           const maxScore = test.max_score;
 
           return (
@@ -165,8 +173,15 @@ const Tests = () => {
                 <div className="test-actions">
                   {userScore !== undefined ? (
                     <>
-                      <button className="action-btn view-results-btn">Посмотреть результаты</button>
-                      <button className="action-btn retry-btn">Пройти заново</button>
+                      <button
+                        className="action-btn view-results-btn"
+                        onClick={() => handleViewResults(test.id, userScore, maxScore)}
+                      >
+                        Посмотреть результаты
+                      </button>
+                      <Link to={`/test/${test.id}`} className="action-btn retry-btn">
+                        Пройти заново
+                      </Link>
                     </>
                   ) : (
                     <Link to={`/test/${test.id}`} className="action-btn start-btn">
@@ -180,7 +195,7 @@ const Tests = () => {
         })}
       </div>
 
-      <div className="tests-info">{/* ... без изменений ... */}</div>
+      <div className="tests-info">{/* ... */}</div>
     </div>
   );
 };
