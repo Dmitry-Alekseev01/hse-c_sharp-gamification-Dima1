@@ -22,14 +22,20 @@ const Home = () => {
     streakDays: 0,
     totalMaterials: 0,
   });
-  const [levels, setLevels] = useState([]); // дорожная карта (уровни)
+  const [levels, setLevels] = useState([]);
   const [currentLevel, setCurrentLevel] = useState(null);
-  const [deadlines, setDeadlines] = useState([]); // дедлайны из тестов
-  const [badges, setBadges] = useState([]); // достижения
+  const [deadlines, setDeadlines] = useState([]);
+  const [badges, setBadges] = useState([]);
   const [activeTab, setActiveTab] = useState('roadmap');
   const [activeFilter, setActiveFilter] = useState('all');
 
-  // Форматирование дат
+  // Преобразование процентов в 10-балльную шкалу
+  const getAverageScoreIn10Scale = (percent) => {
+    if (percent === undefined || percent === null) return '—';
+    const score = (percent / 10).toFixed(1);
+    return score;
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -60,11 +66,9 @@ const Home = () => {
         return;
       }
       try {
-        // 1. Профиль (имя)
         const profile = await fetchUserProfile();
         setUserName(profile.full_name || profile.username);
 
-        // 2. Геймификация (очки, стрик, бейджи, текущий уровень)
         const progress = await fetchUserProgress(profile.id);
         if (progress) {
           setStats((prev) => ({
@@ -76,11 +80,9 @@ const Home = () => {
           if (progress.current_level) setCurrentLevel(progress.current_level);
         }
 
-        // 3. Уровни (дорожная карта)
         const levelsData = await fetchLevels();
         setLevels(levelsData || []);
 
-        // 4. Тесты – для статистики и дедлайнов
         const tests = await fetchTests();
         const totalTestsCount = tests.length;
         let completedCount = 0;
@@ -89,7 +91,6 @@ const Home = () => {
         const deadlinesList = [];
 
         for (const test of tests) {
-          // Дедлайны
           if (test.deadline) {
             const deadlineDate = new Date(test.deadline);
             const today = new Date();
@@ -105,7 +106,6 @@ const Home = () => {
             });
           }
 
-          // Ответы пользователя
           try {
             const answers = await fetchUserAnswers(test.id);
             if (answers && answers.length > 0) {
@@ -118,9 +118,7 @@ const Home = () => {
                 testsWithScore++;
               }
             }
-          } catch (e) {
-            // Нет ответов – тест не пройден
-          }
+          } catch (e) {}
         }
 
         const averageScore = testsWithScore > 0 ? Math.round(totalScoreSum / testsWithScore) : 0;
@@ -132,7 +130,6 @@ const Home = () => {
         }));
         setDeadlines(deadlinesList);
 
-        // 5. Материалы – для общей статистики
         const materials = await fetchMaterials();
         setStats((prev) => ({
           ...prev,
@@ -149,7 +146,6 @@ const Home = () => {
 
   if (loading) return <div className="loading">Загрузка...</div>;
 
-  // Подготовка данных для статистики
   const totalDeadlines = deadlines.length;
   const overdueCount = deadlines.filter((d) => d.daysLeft < 0).length;
   const todayCount = deadlines.filter((d) => d.daysLeft === 0).length;
@@ -166,15 +162,10 @@ const Home = () => {
             Продолжайте изучать веб-разработку. Сегодня отличный день для обучения!
           </p>
           <div className="stats-cards">
+            {/* Убрана карточка "Текущий стрик" */}
             <div className="stat-card">
               <div className="stat-info">
-                <div className="stat-value">{stats.streakDays} дней</div>
-                <div className="stat-label">Текущий стрик</div>
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-info">
-                <div className="stat-value">{stats.averageScore}%</div>
+                <div className="stat-value">{getAverageScoreIn10Scale(stats.averageScore)}</div>
                 <div className="stat-label">Средний балл</div>
               </div>
             </div>
@@ -196,11 +187,9 @@ const Home = () => {
         </div>
       </div>
 
-      {/* Блок стрика (оставляем календарь заглушкой, т.к. нет истории) */}
       <div className="streak-section">
         <h2 className="section-title">Текущий стрик: {stats.streakDays} дней</h2>
         <div className="streak-calendar">
-          {/* Заглушка: можно показать просто текст или иконки */}
           <div className="streak-placeholder">Продолжайте учиться каждый день! 🔥</div>
         </div>
         <p className="streak-motivation">
@@ -210,7 +199,6 @@ const Home = () => {
         </p>
       </div>
 
-      {/* Табы */}
       <div className="tabs-navigation">
         <button
           className={`tab-btn ${activeTab === 'roadmap' ? 'active' : ''}`}
@@ -233,7 +221,6 @@ const Home = () => {
       </div>
 
       <div className="tab-content">
-        {/* Дорожная карта (уровни) */}
         {activeTab === 'roadmap' && (
           <div className="roadmap-section">
             <h2 className="section-title">Дорожная карта обучения</h2>
@@ -280,7 +267,6 @@ const Home = () => {
           </div>
         )}
 
-        {/* Ближайшие дедлайны */}
         {activeTab === 'deadlines' && (
           <div className="deadlines-section">
             <h2 className="section-title">Ближайшие дедлайны</h2>
@@ -319,7 +305,6 @@ const Home = () => {
               >
                 Тесты
               </button>
-              {/* Можно добавить другие типы, если появятся */}
             </div>
             <div className="deadlines-horizontal">
               {getFilteredDeadlines().map((item) => (
@@ -344,61 +329,38 @@ const Home = () => {
           </div>
         )}
 
-        {/* Прогресс */}
         {activeTab === 'progress' && (
           <div className="progress-section">
             <h2 className="section-title">Ваш прогресс обучения</h2>
-            <div className="progress-overview">
-              <div className="progress-chart">
-                <div className="chart-header">
-                  <h3>Общий прогресс курса</h3>
-                  <span className="chart-percentage">
+            <div className="progress-stats" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+              <div className="progress-stat">
+                <div
+                  className="stat-circle"
+                  style={{
+                    background: `conic-gradient(#667eea ${(stats.completedTests / (stats.totalTests || 1)) * 360}deg, #e0e7ff 0deg)`,
+                  }}
+                >
+                  <span>
                     {stats.totalTests
                       ? Math.round((stats.completedTests / stats.totalTests) * 100)
                       : 0}
                     %
                   </span>
                 </div>
-                <div className="chart-bar">
-                  <div
-                    className="chart-fill"
-                    style={{
-                      width: `${stats.totalTests ? (stats.completedTests / stats.totalTests) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
+                <p>Тестов пройдено</p>
               </div>
-              <div className="progress-stats">
-                <div className="progress-stat">
-                  <div
-                    className="stat-circle"
-                    style={{
-                      background: `conic-gradient(#667eea ${(stats.completedTests / (stats.totalTests || 1)) * 360}deg, #e0e7ff 0deg)`,
-                    }}
-                  >
-                    <span>
-                      {stats.totalTests
-                        ? Math.round((stats.completedTests / stats.totalTests) * 100)
-                        : 0}
-                      %
-                    </span>
-                  </div>
-                  <p>Тестов пройдено</p>
+              <div className="progress-stat">
+                <div
+                  className="stat-circle"
+                  style={{
+                    background: `conic-gradient(#52c41a ${(stats.totalPoints / 1000) * 360}deg, #e0e7ff 0deg)`,
+                  }}
+                >
+                  <span>{stats.totalPoints}</span>
                 </div>
-                <div className="progress-stat">
-                  <div
-                    className="stat-circle"
-                    style={{
-                      background: `conic-gradient(#52c41a ${(stats.totalPoints / 1000) * 360}deg, #e0e7ff 0deg)`,
-                    }}
-                  >
-                    <span>{stats.totalPoints}</span>
-                  </div>
-                  <p>Всего баллов</p>
-                </div>
+                <p>Всего баллов</p>
               </div>
             </div>
-            {/* Достижения */}
             <div className="achievements">
               <h3>Достижения</h3>
               <div className="achievements-grid">
@@ -422,7 +384,6 @@ const Home = () => {
         )}
       </div>
 
-      {/* Быстрые действия (оставляем статику) */}
       <div className="quick-actions">
         <h2 className="section-title">Быстрые действия</h2>
         <div className="actions-grid">

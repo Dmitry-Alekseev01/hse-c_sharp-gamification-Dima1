@@ -20,7 +20,7 @@ const Footer = () => {
 
       <p className="footer-text">По вопросам обращайтесь в чат поддержки</p>
 
-      <p className="footer-copyright">© {currentYear}, АНО ДПО «Т-Образование»</p>
+      <p className="footer-copyright">© {currentYear}, «C#-мастер»</p>
     </footer>
   );
 };

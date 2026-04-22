@@ -1,34 +1,92 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchUserProfile, getToken } from '../../api/api';
+import {
+  fetchUserProfile,
+  getToken,
+  fetchTests,
+  fetchUserAnswers,
+  fetchMaterials,
+} from '../../api/api';
 import './PersonalAccount.css';
 
 const PersonalAccount = () => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [stats, setStats] = useState({
+    totalMaterials: 0,
+    totalTests: 0,
+    completedTests: 0,
+    averageScore: 0,
+    overallProgress: 0,
+  });
 
   useEffect(() => {
-    const loadProfile = async () => {
+    const loadData = async () => {
       if (!getToken()) {
         setLoading(false);
         return;
       }
       try {
-        const data = await fetchUserProfile();
-        setProfile(data);
+        // 1. Профиль пользователя
+        const profileData = await fetchUserProfile();
+        console.log('Профиль пользователя:', profileData); // для отладки
+        setProfile(profileData);
+
+        // 2. Материалы
+        const materials = await fetchMaterials();
+        const totalMaterials = materials.length;
+
+        // 3. Тесты и ответы
+        const tests = await fetchTests();
+        const totalTests = tests.length;
+        let completedTests = 0;
+        let totalScoreSum = 0;
+        let testsWithScore = 0;
+
+        for (const test of tests) {
+          try {
+            const answers = await fetchUserAnswers(test.id);
+            if (answers && answers.length > 0) {
+              completedTests++;
+              const userScore = answers.reduce((sum, ans) => sum + (ans.score || 0), 0);
+              const maxScore = test.max_score;
+              if (maxScore) {
+                const percentage = (userScore / maxScore) * 100;
+                totalScoreSum += percentage;
+                testsWithScore++;
+              }
+            }
+          } catch (e) {
+            // игнорируем
+          }
+        }
+        const averageScore = testsWithScore > 0 ? Math.round(totalScoreSum / testsWithScore) : 0;
+        const overallProgress = totalTests ? Math.round((completedTests / totalTests) * 100) : 0;
+
+        setStats({
+          totalMaterials,
+          totalTests,
+          completedTests,
+          averageScore,
+          overallProgress,
+        });
       } catch (err) {
         setError(err.message);
       } finally {
         setLoading(false);
       }
     };
-    loadProfile();
+    loadData();
   }, []);
 
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
+  // Функция для получения даты регистрации из разных возможных полей
+  const getRegistrationDate = (profile) => {
+    if (!profile) return null;
+    const dateString = profile.created_at || profile.registered_at || profile.date_joined || null;
+    if (!dateString) return null;
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return null;
     return date.toLocaleDateString('ru-RU', {
       day: 'numeric',
       month: 'long',
@@ -40,13 +98,18 @@ const PersonalAccount = () => {
   if (error) return <div className="error">Ошибка: {error}</div>;
   if (!profile) return <div className="error">Пожалуйста, войдите в систему</div>;
 
-  // Отображаемое имя: сначала full_name, если нет – то username, но если username похож на email, показываем "Пользователь"
   let displayName = profile.full_name;
   if (!displayName) {
     displayName =
       profile.username && profile.username.includes('@') ? 'Пользователь' : profile.username;
   }
   const loginName = profile.username;
+  const registrationDate = getRegistrationDate(profile);
+
+  // Отображаемые значения для панели аналитики
+  const materialsDisplay = `0/${stats.totalMaterials}`;
+  const testsDisplay = `${stats.completedTests}/${stats.totalTests}`;
+  const progressDisplay = `${stats.overallProgress}%`;
 
   return (
     <div className="personal-account-page">
@@ -78,9 +141,7 @@ const PersonalAccount = () => {
               <div className="detail-item">
                 <div className="detail-label">Дата регистрации:</div>
                 <div className="detail-value">
-                  <span className="date-value">
-                    {formatDate(profile.created_at) || 'Не указана'}
-                  </span>
+                  <span className="date-value">{registrationDate || 'Не указана'}</span>
                 </div>
               </div>
             </div>
@@ -104,15 +165,15 @@ const PersonalAccount = () => {
                 </p>
                 <div className="analytics-stats-preview">
                   <div className="preview-stat">
-                    <div className="preview-stat-value">85%</div>
+                    <div className="preview-stat-value">{progressDisplay}</div>
                     <div className="preview-stat-label">Общий прогресс</div>
                   </div>
                   <div className="preview-stat">
-                    <div className="preview-stat-value">4/8</div>
+                    <div className="preview-stat-value">{materialsDisplay}</div>
                     <div className="preview-stat-label">Материалы</div>
                   </div>
                   <div className="preview-stat">
-                    <div className="preview-stat-value">6/12</div>
+                    <div className="preview-stat-value">{testsDisplay}</div>
                     <div className="preview-stat-label">Тесты</div>
                   </div>
                 </div>
