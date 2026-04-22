@@ -29,6 +29,7 @@ async function authFetch(url, options = {}) {
   return response.json();
 }
 
+// ========== Аутентификация ==========
 export const fetchUserProfile = async () => {
   const profile = await authFetch('/auth/me');
   if (profile?.username) localStorage.setItem('userEmail', profile.username);
@@ -48,7 +49,9 @@ export const loginUser = async (username, password) => {
   localStorage.setItem('userEmail', username);
   try {
     await fetchUserProfile();
-  } catch (_) {}
+  } catch (_) {
+    // игнорируем ошибку загрузки профиля при логине
+  }
   return data;
 };
 
@@ -68,6 +71,7 @@ export const logoutUser = () => {
   window.location.href = '/';
 };
 
+// ========== Материалы ==========
 function adaptMaterial(apiMaterial) {
   let content_text = '';
   let content_url = null;
@@ -79,7 +83,9 @@ function adaptMaterial(apiMaterial) {
   }
   if (!content_text && apiMaterial.content_text) content_text = apiMaterial.content_text;
   if (!content_url && apiMaterial.content_url) content_url = apiMaterial.content_url;
+
   const tests = (apiMaterial.related_test_ids || []).map((id) => ({ id, title: `Тест #${id}` }));
+
   return {
     id: apiMaterial.id,
     title: apiMaterial.title,
@@ -88,6 +94,8 @@ function adaptMaterial(apiMaterial) {
     content_url,
     created_at: apiMaterial.published_at,
     tests,
+    blocks: apiMaterial.blocks || [],
+    attachments: apiMaterial.attachments || [],
   };
 }
 
@@ -97,20 +105,22 @@ export const fetchMaterials = async () => {
 };
 
 export const fetchMaterialById = async (id) => {
-  const data = await authFetch(`/materials/${id}/`);
+  // Убираем завершающий слеш, чтобы избежать редиректа 307
+  const data = await authFetch(`/materials/${id}`);
   return adaptMaterial(data);
 };
 
+// ========== Тесты ==========
 export const fetchTests = async () => {
   return authFetch('/tests/');
 };
 
 export const fetchTestContent = async (testId) => {
-  return authFetch(`/tests/${testId}/content/`);
+  return authFetch(`/tests/${testId}/content`);
 };
 
 export const startTestAttempt = async (testId) => {
-  return authFetch(`/tests/${testId}/attempts/start/`, { method: 'POST' });
+  return authFetch(`/tests/${testId}/attempts/start`, { method: 'POST' });
 };
 
 export const submitAnswer = async (testId, questionId, answerPayload, attemptId = null) => {
@@ -120,15 +130,16 @@ export const submitAnswer = async (testId, questionId, answerPayload, attemptId 
 };
 
 export const completeTestAttempt = async (attemptId) => {
-  return authFetch(`/tests/attempts/${attemptId}/complete/`, { method: 'POST' });
+  return authFetch(`/tests/attempts/${attemptId}/complete`, { method: 'POST' });
 };
 
 export const fetchUserAnswers = async (testId) => {
-  return authFetch(`/answers/test/${testId}/`);
+  return authFetch(`/answers/test/${testId}`);
 };
 
+// ========== Аналитика ==========
 export const fetchUserProgress = async (userId) => {
-  return authFetch(`/analytics/user/${userId}/progress/`);
+  return authFetch(`/analytics/user/${userId}/progress`);
 };
 
 export const fetchLeaderboard = async () => {
@@ -140,13 +151,14 @@ export const fetchOverview = async () => {
 };
 
 export const fetchTestCompletedSummary = async (testId) => {
-  return authFetch(`/analytics/test/${testId}/completed-summary/`);
+  return authFetch(`/analytics/test/${testId}/completed-summary`);
 };
 
 export const fetchLevels = async () => {
   return authFetch('/levels/');
 };
 
+// ========== Обновление профиля ==========
 export const updateUserProfile = async (fullName) => {
   return authFetch('/users/me', {
     method: 'PATCH',
