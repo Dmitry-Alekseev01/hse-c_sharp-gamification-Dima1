@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.schemas.level import LevelRead
 
@@ -97,8 +97,13 @@ class PointsLedgerEntryRead(BaseModel):
     source_type: str | None
     source_id: int | None
     idempotency_key: str | None
-    metadata: dict[str, object]
+    metadata: dict[str, object] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("metadata", "metadata_json"),
+    )
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class PointsLedgerPageRead(BaseModel):

@@ -1,10 +1,16 @@
 # app/models/user.py
-from sqlalchemy import Column, Integer, String, DateTime, func
+from sqlalchemy import CheckConstraint, Column, Integer, String, DateTime, func
 from sqlalchemy.orm import relationship
 from app.db.session import Base
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('user', 'teacher', 'admin')",
+            name="ck_users_role_valid",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(100), unique=True, nullable=False, index=True)

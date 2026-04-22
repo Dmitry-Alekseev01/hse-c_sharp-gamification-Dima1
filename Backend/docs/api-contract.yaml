@@ -367,6 +367,15 @@ components:
         value: { type: string }
         ordinal: { type: integer, nullable: true }
 
+    ChoiceCreate:
+      type: object
+      required: [question_id, value]
+      properties:
+        question_id: { type: integer }
+        value: { type: string }
+        ordinal: { type: integer, nullable: true }
+        is_correct: { type: boolean, default: false }
+
     QuestionRead:
       type: object
       properties:
@@ -1048,6 +1057,11 @@ paths:
   /api/v1/choices:
     post:
       summary: Create choice in owned test
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChoiceCreate' }
       responses:
         '201': { description: Teacher choice payload with is_correct }
 

@@ -1,10 +1,20 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func
+from sqlalchemy import CheckConstraint, Column, Integer, String, Text, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
 from app.db.session import Base
 from app.models.associations import material_test_links
 
 class Material(Base):
     __tablename__ = "materials"
+    __table_args__ = (
+        CheckConstraint(
+            "material_type IN ('lesson', 'module', 'article')",
+            name="ck_materials_type_valid",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'published', 'archived')",
+            name="ck_materials_status_valid",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(300), nullable=False, index=True)

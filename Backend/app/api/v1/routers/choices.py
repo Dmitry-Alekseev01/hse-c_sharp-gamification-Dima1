@@ -9,7 +9,7 @@ from app.models.choice import Choice
 from app.core.security import get_current_user, require_roles
 from app.models.question import Question
 from app.models.user import User
-from app.schemas.question import ChoiceCreate, ChoiceRead, ChoiceTeacherRead, ChoiceUpdate
+from app.schemas.question import ChoiceCreateStandalone, ChoiceRead, ChoiceTeacherRead, ChoiceUpdate
 from app.repositories import choice_repo
 
 router = APIRouter()
@@ -31,12 +31,10 @@ async def list_choices(
 
 @router.post("/", response_model=ChoiceTeacherRead, status_code=status.HTTP_201_CREATED)
 async def create_choice(
-    payload: ChoiceCreate,
+    payload: ChoiceCreateStandalone,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("teacher", "admin")),
 ):
-    if payload.question_id is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="question_id is required")
     question = await db.get(Question, payload.question_id)
     if question is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")

@@ -366,20 +366,21 @@ async def list_points_ledger_for_user(
         .offset(max(int(offset), 0))
     )
     rows = (await session.execute(stmt)).scalars().all()
-    return [
-        {
-            "id": row.id,
-            "user_id": row.user_id,
-            "delta": float(row.delta or 0.0),
-            "reason_code": row.reason_code,
-            "source_type": row.source_type,
-            "source_id": row.source_id,
-            "idempotency_key": row.idempotency_key,
-            "metadata": row.metadata_json or {},
-            "created_at": row.created_at,
-        }
-        for row in rows
-    ]
+    return [_points_ledger_to_read_dict(row) for row in rows]
+
+
+def _points_ledger_to_read_dict(row: PointsLedger) -> Dict[str, Any]:
+    return {
+        "id": row.id,
+        "user_id": row.user_id,
+        "delta": float(row.delta or 0.0),
+        "reason_code": row.reason_code,
+        "source_type": row.source_type,
+        "source_id": row.source_id,
+        "idempotency_key": row.idempotency_key,
+        "metadata": row.metadata_json or {},
+        "created_at": row.created_at,
+    }
 
 
 async def get_gamification_progress(session: AsyncSession, user_id: int) -> Optional[Dict[str, Any]]:

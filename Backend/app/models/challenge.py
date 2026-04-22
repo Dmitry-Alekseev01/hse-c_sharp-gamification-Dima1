@@ -1,5 +1,6 @@
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -17,6 +18,16 @@ from app.db.session import Base
 
 class Challenge(Base):
     __tablename__ = "challenges"
+    __table_args__ = (
+        CheckConstraint(
+            "period_type IN ('daily', 'weekly')",
+            name="ck_challenges_period_type_valid",
+        ),
+        CheckConstraint(
+            "event_type IN ('answer_submitted', 'attempt_completed', 'streak_day')",
+            name="ck_challenges_event_type_valid",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(100), unique=True, nullable=False, index=True)

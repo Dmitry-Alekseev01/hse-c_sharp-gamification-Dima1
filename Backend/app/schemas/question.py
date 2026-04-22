@@ -2,7 +2,13 @@ from pydantic import BaseModel, ConfigDict
 from typing import List
 
 class ChoiceCreate(BaseModel):
-    question_id: int | None = None
+    value: str
+    ordinal: int | None = None
+    is_correct: bool = False
+
+
+class ChoiceCreateStandalone(BaseModel):
+    question_id: int
     value: str
     ordinal: int | None = None
     is_correct: bool = False

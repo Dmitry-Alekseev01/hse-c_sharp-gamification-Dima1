@@ -10,11 +10,11 @@ class Answer(Base):
     test_id = Column(Integer, ForeignKey("tests.id"), nullable=False, index=True)
     attempt_id = Column(Integer, ForeignKey("test_attempts.id"), nullable=True, index=True)
     question_id = Column(Integer, ForeignKey("questions.id"), nullable=False, index=True)
-    answer_payload = Column(Text, nullable=True)  # MCQ: choice.id as string; open: free text
+    answer_payload = Column(Text, nullable=False)  # MCQ: choice.id as string; open: free text
     score = Column(Float, nullable=True)
     graded_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     graded_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, server_default=func.now(), nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     # relationships (explicit foreign_keys to avoid ambiguity)
     user = relationship(
