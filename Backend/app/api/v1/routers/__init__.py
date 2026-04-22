@@ -8,3 +8,4 @@ from . import levels
 from . import choices
 from . import auth
 from . import groups
+from . import ai

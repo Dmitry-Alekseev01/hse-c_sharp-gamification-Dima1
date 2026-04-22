@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -36,7 +36,7 @@ async def test_finalize_attempt_if_expired_completes_timed_out_attempt(db):
     await db.flush()
 
     attempt = await test_attempt_repo.create_attempt(db, user.id, test.id)
-    attempt.started_at = datetime.utcnow() - timedelta(minutes=2)
+    attempt.started_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=2)
     await db.flush()
 
     completed_attempt, reason = await finalize_attempt_if_expired(db, test, attempt)

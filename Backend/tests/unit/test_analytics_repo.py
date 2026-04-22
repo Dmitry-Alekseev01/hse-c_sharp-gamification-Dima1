@@ -1,7 +1,7 @@
 # tests/unit/test_analytics_repo.py
 import pytest
 pytestmark = pytest.mark.asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.models.level import Level
 from app.models.test_ import Test
@@ -62,7 +62,7 @@ async def test_analytics_updates_streak_and_level(db):
     assert analytics.streak_days == 1
     assert analytics.current_level_id == level_1.id
 
-    analytics.last_active = datetime.utcnow() - timedelta(days=1)
+    analytics.last_active = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1)
     await db.flush()
 
     analytics = await analytics_repo.create_or_update_analytics(db, user.id, points_delta=45.0, mark_active=True)
@@ -108,8 +108,8 @@ async def test_gamification_progress_reports_earned_badges(db):
             score=10.0,
             max_score=10.0,
             time_spent_seconds=60,
-            submitted_at=datetime.utcnow(),
-            completed_at=datetime.utcnow(),
+            submitted_at=datetime.now(UTC).replace(tzinfo=None),
+            completed_at=datetime.now(UTC).replace(tzinfo=None),
         )
     )
     await db.flush()
