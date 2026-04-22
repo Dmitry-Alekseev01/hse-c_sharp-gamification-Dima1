@@ -78,3 +78,17 @@ async def remove_user_from_group(session, group: StudyGroup, user_id: int) -> bo
     await session.delete(membership)
     await session.flush()
     return True
+
+
+async def teacher_manages_user(session, teacher_id: int, user_id: int) -> bool:
+    stmt = (
+        select(GroupMembership.id)
+        .join(StudyGroup, StudyGroup.id == GroupMembership.group_id)
+        .where(
+            StudyGroup.teacher_id == teacher_id,
+            GroupMembership.user_id == user_id,
+        )
+        .limit(1)
+    )
+    membership_id = (await session.execute(stmt)).scalar_one_or_none()
+    return membership_id is not None

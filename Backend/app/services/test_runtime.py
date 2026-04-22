@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from app.models.test_ import Test
 from app.models.test_attempt import TestAttempt
 from app.repositories import analytics_repo, test_attempt_repo
+from app.services.challenge_service import ChallengeEventType, record_event
 
 
 class AttemptPolicyError(ValueError):
@@ -40,7 +41,19 @@ async def finalize_attempt_if_expired(session, test: Test, attempt: TestAttempt)
         return attempt, None
 
     completed_attempt = await test_attempt_repo.complete_attempt(session, attempt)
-    await analytics_repo.register_completed_attempt(session, completed_attempt.user_id)
+    await analytics_repo.register_completed_attempt(session, completed_attempt.user_id, attempt_id=completed_attempt.id)
+    await record_event(
+        session,
+        user_id=completed_attempt.user_id,
+        event_type=ChallengeEventType.ATTEMPT_COMPLETED,
+        increment=1,
+    )
+    await record_event(
+        session,
+        user_id=completed_attempt.user_id,
+        event_type=ChallengeEventType.STREAK_DAY,
+        increment=1,
+    )
     return completed_attempt, reason
 
 

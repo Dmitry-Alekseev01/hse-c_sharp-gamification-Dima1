@@ -50,3 +50,31 @@ class User(Base):
         uselist=False,
         lazy="selectin",
     )
+
+    earned_achievements = relationship(
+        "UserAchievement",
+        foreign_keys="UserAchievement.user_id",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+
+    points_ledger_entries = relationship(
+        "PointsLedger",
+        foreign_keys="PointsLedger.user_id",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+
+    challenge_progress_entries = relationship(
+        "UserChallengeProgress",
+        foreign_keys="UserChallengeProgress.user_id",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+
+    challenge_claims = relationship(
+        "UserChallengeClaim",
+        foreign_keys="UserChallengeClaim.user_id",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )

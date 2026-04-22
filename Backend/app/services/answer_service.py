@@ -16,6 +16,7 @@ from app.models.answer import Answer
 from app.models.choice import Choice
 from app.models.question import Question
 from app.cache.redis_cache import NS_LEADERBOARD, NS_TEST_SUMMARY, bump_cache_namespace, get_redis_client
+from app.services.challenge_service import ChallengeEventType, record_event
 
 
 async def submit_answer(session, user_id: int, test_id: int, question_id: int, payload: str, attempt_id: int | None = None):
@@ -86,6 +87,27 @@ async def submit_answer(session, user_id: int, test_id: int, question_id: int, p
         user_id=user_id,
         points_delta=points_delta,
         mark_active=True,
+        reason_code="answer_auto_graded" if not is_open else "answer_open_submitted",
+        source_type="answer",
+        source_id=ans.id,
+        metadata={
+            "test_id": test_id,
+            "question_id": question_id,
+            "attempt_id": attempt_id,
+            "is_open_answer": is_open,
+        },
+    )
+    await record_event(
+        session,
+        user_id=user_id,
+        event_type=ChallengeEventType.ANSWER_SUBMITTED,
+        increment=1,
+    )
+    await record_event(
+        session,
+        user_id=user_id,
+        event_type=ChallengeEventType.STREAK_DAY,
+        increment=1,
     )
     if attempt_id is not None:
         attempt = await test_attempt_repo.get_attempt(session, attempt_id)
@@ -128,7 +150,20 @@ async def manual_grade_open_answer(session, answer_id: int, grader_id: int, scor
 
     delta = normalized_score - previous_score
     if delta != 0:
-        await analytics_repo.apply_points_delta(session, answer.user_id, delta)
+        await analytics_repo.apply_points_delta(
+            session,
+            answer.user_id,
+            delta,
+            reason_code="answer_manual_grade",
+            source_type="answer",
+            source_id=answer.id,
+            idempotency_key=f"answer_manual_grade:{answer.id}:{normalized_score}",
+            metadata={
+                "question_id": answer.question_id,
+                "attempt_id": answer.attempt_id,
+                "grader_id": grader_id,
+            },
+        )
         if answer.attempt_id is not None:
             attempt = await test_attempt_repo.get_attempt(session, answer.attempt_id)
             if attempt is not None:

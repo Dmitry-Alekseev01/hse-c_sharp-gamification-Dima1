@@ -125,6 +125,43 @@ class AIGamifyOpsMetricsRead(BaseModel):
     jobs_semantic_fallback_used: int = 0
 
 
+class AIGamifyDLQEntryRead(BaseModel):
+    queue_index: int
+    job_id: int | None = None
+    error: str | None = None
+    raw_payload: str
+
+
+class AIGamifyDLQListRead(BaseModel):
+    items: list[AIGamifyDLQEntryRead]
+    limit: int
+    offset: int
+    total: int
+
+
+class AIGamifyDLQRequeueRead(BaseModel):
+    queue_index: int
+    job_id: int
+    status: AIGamifyJobStatus
+
+
+class AIGamifyDLQDiscardRead(BaseModel):
+    queue_index: int
+    removed: bool
+
+
+class AIGamifyDLQBatchActionRequest(BaseModel):
+    max_items: int = Field(default=20, ge=1, le=500)
+
+
+class AIGamifyDLQBatchActionRead(BaseModel):
+    scanned: int
+    requeued: int = 0
+    discarded: int = 0
+    skipped: int = 0
+    failures: list[str] = Field(default_factory=list)
+
+
 class AIGamifyApplyRequest(BaseModel):
     target_type: AIGamifyTargetType
     target_id: int

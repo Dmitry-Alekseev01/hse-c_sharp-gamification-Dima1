@@ -135,8 +135,18 @@ def cache_key_test_detail(test_id: int, level_id: int = 0, version: int = 0) -> 
     return f"tests:v{version}:detail:{level_id}:{test_id}"
 
 
-def cache_key_leaderboard_page(limit: int, offset: int, version: int = 0) -> str:
-    return f"leaderboard:v{version}:top:{limit}:{offset}"
+def cache_key_leaderboard_page(
+    limit: int,
+    offset: int,
+    version: int = 0,
+    scope: str = "global",
+    period: str = "all_time",
+    group_id: int | None = None,
+    season_id: int | None = None,
+) -> str:
+    safe_group = group_id if group_id is not None else "none"
+    safe_season = season_id if season_id is not None else "none"
+    return f"leaderboard:v{version}:{scope}:{period}:{safe_group}:{safe_season}:{limit}:{offset}"
 
 
 def cache_key_question_list(test_id: int, limit: int, offset: int, level_id: int = 0, version: int = 0) -> str:

@@ -2,8 +2,10 @@
 import pytest
 pytestmark = pytest.mark.asyncio
 from datetime import UTC, datetime, timedelta
+from sqlalchemy import func, select
 
 from app.models.level import Level
+from app.models.points_ledger import PointsLedger
 from app.models.test_ import Test
 from app.models.test_attempt import TestAttempt as AttemptModel
 from app.models.user import User
@@ -124,3 +126,65 @@ async def test_gamification_progress_reports_earned_badges(db):
     assert "focused_three" in earned
     assert "focused_week" in earned
     assert "century_points" in earned
+
+
+@pytest.mark.asyncio
+async def test_points_ledger_is_idempotent_by_key(db):
+    user = User(username="ledger_user", password_hash="x", role="user")
+    db.add(user)
+    await db.flush()
+
+    await analytics_repo.apply_points_transaction(
+        db,
+        user_id=user.id,
+        points_delta=10.0,
+        reason_code="unit_test_reward",
+        source_type="unit_test",
+        source_id=1,
+        idempotency_key="unit_test_reward:1",
+    )
+    await analytics_repo.apply_points_transaction(
+        db,
+        user_id=user.id,
+        points_delta=10.0,
+        reason_code="unit_test_reward",
+        source_type="unit_test",
+        source_id=1,
+        idempotency_key="unit_test_reward:1",
+    )
+
+    analytics = await analytics_repo.get_user_analytics(db, user.id)
+    assert analytics is not None
+    assert analytics.total_points == pytest.approx(10.0)
+
+    ledger_count = await db.scalar(select(func.count(PointsLedger.id)).where(PointsLedger.user_id == user.id))
+    assert int(ledger_count or 0) == 1
+
+
+@pytest.mark.asyncio
+async def test_user_achievements_are_persisted(db):
+    user = User(username="persistent_badge_user", password_hash="x", role="user")
+    level = Level(name="Lvl 0", required_points=0)
+    test = Test(title="Persistent badge test", published=True)
+    db.add_all([user, level, test])
+    await db.flush()
+
+    attempt = AttemptModel(
+        user_id=user.id,
+        test_id=test.id,
+        status="completed",
+        score=1.0,
+        max_score=1.0,
+        time_spent_seconds=30,
+        submitted_at=datetime.now(UTC).replace(tzinfo=None),
+        completed_at=datetime.now(UTC).replace(tzinfo=None),
+    )
+    db.add(attempt)
+    await db.flush()
+
+    await analytics_repo.register_completed_attempt(db, user.id, attempt_id=attempt.id)
+    await db.flush()
+
+    achievements = await analytics_repo.list_user_achievements(db, user.id)
+    earned_codes = {item["code"] for item in achievements if item["earned"]}
+    assert "first_steps" in earned_codes

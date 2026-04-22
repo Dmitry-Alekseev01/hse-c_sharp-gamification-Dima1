@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
@@ -77,6 +78,35 @@ class GamificationBadgeRead(BaseModel):
     earned: bool
 
 
+class UserAchievementRead(BaseModel):
+    code: str
+    title: str
+    description: str
+    reward: str | None
+    criteria_type: str
+    threshold_value: int
+    earned: bool
+    earned_at: datetime | None
+
+
+class PointsLedgerEntryRead(BaseModel):
+    id: int
+    user_id: int
+    delta: float
+    reason_code: str
+    source_type: str | None
+    source_id: int | None
+    idempotency_key: str | None
+    metadata: dict[str, object]
+    created_at: datetime
+
+
+class PointsLedgerPageRead(BaseModel):
+    items: list[PointsLedgerEntryRead]
+    limit: int
+    offset: int
+
+
 class UserGamificationProgressRead(BaseModel):
     user_id: int
     username: str
@@ -131,3 +161,90 @@ class DailyActiveRead(BaseModel):
 class RetentionEntryRead(BaseModel):
     user_id: int
     active_days: list[datetime | None]
+
+
+class ChallengePeriodType(str, Enum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+
+class ChallengeEventType(str, Enum):
+    ANSWER_SUBMITTED = "answer_submitted"
+    ATTEMPT_COMPLETED = "attempt_completed"
+    STREAK_DAY = "streak_day"
+
+
+class ChallengeCreate(BaseModel):
+    code: str
+    title: str
+    description: str | None = None
+    period_type: ChallengePeriodType
+    event_type: ChallengeEventType
+    target_value: int
+    reward_points: float = 0.0
+    is_active: bool = True
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+
+class ChallengeRead(BaseModel):
+    id: int
+    code: str
+    title: str
+    description: str | None
+    period_type: ChallengePeriodType
+    event_type: ChallengeEventType
+    target_value: int
+    reward_points: float
+    is_active: bool
+    starts_at: datetime | None
+    ends_at: datetime | None
+    created_by: int | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserChallengeProgressRead(BaseModel):
+    challenge_id: int
+    code: str
+    title: str
+    description: str | None
+    period_type: ChallengePeriodType
+    event_type: ChallengeEventType
+    target_value: int
+    reward_points: float
+    period_key: str
+    progress_value: int
+    is_completed: bool
+    is_claimed: bool
+    completed_at: datetime | None
+    claimed_at: datetime | None
+
+
+class ChallengeClaimRead(BaseModel):
+    challenge_id: int
+    period_key: str
+    reward_points: float
+    claimed_at: datetime
+
+
+class SeasonCreate(BaseModel):
+    code: str
+    title: str
+    starts_at: datetime
+    ends_at: datetime
+    is_active: bool = True
+
+
+class SeasonRead(BaseModel):
+    id: int
+    code: str
+    title: str
+    starts_at: datetime
+    ends_at: datetime
+    is_active: bool
+    created_by: int | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

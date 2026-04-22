@@ -33,3 +33,18 @@ async def test_create_group_and_manage_members(db):
     loaded_again = await group_repo.get_group(db, group_id)
     assert loaded_again is not None
     assert loaded_again.memberships == []
+
+
+@pytest.mark.asyncio
+async def test_teacher_manages_user(db):
+    teacher = User(username="manage_teacher", password_hash="x", role="teacher")
+    student = User(username="manage_student", password_hash="x", role="user")
+    outsider = User(username="manage_outsider", password_hash="x", role="user")
+    db.add_all([teacher, student, outsider])
+    await db.flush()
+
+    group = await group_repo.create_group(db, "BPI-102", teacher.id)
+    await group_repo.add_user_to_group(db, group, student.id)
+
+    assert await group_repo.teacher_manages_user(db, teacher.id, student.id) is True
+    assert await group_repo.teacher_manages_user(db, teacher.id, outsider.id) is False

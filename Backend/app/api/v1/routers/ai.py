@@ -9,6 +9,11 @@ from app.schemas.ai_gamification import (
     AIGamifyApplyRequest,
     AIGamifyApplyResponse,
     AIGamifyCreateResponse,
+    AIGamifyDLQBatchActionRead,
+    AIGamifyDLQBatchActionRequest,
+    AIGamifyDLQDiscardRead,
+    AIGamifyDLQListRead,
+    AIGamifyDLQRequeueRead,
     AIGamifyJobRead,
     AIGamifyJobListRead,
     AIGamifyOpsMetricsRead,
@@ -17,6 +22,11 @@ from app.schemas.ai_gamification import (
 from app.services.ai_gamification_service import (
     apply_job_draft,
     create_ai_gamification_job,
+    discard_ai_dead_letter_batch,
+    discard_ai_dead_letter_job,
+    list_ai_dead_letter_jobs,
+    requeue_ai_dead_letter_batch,
+    requeue_ai_dead_letter_job,
     get_ai_ops_metrics,
     get_job_for_user,
     list_ai_jobs_for_user,
@@ -96,3 +106,56 @@ async def get_ai_metrics(
 ):
     metrics = await get_ai_ops_metrics()
     return AIGamifyOpsMetricsRead.model_validate(metrics)
+
+
+@router.get("/ops/dlq", response_model=AIGamifyDLQListRead, status_code=status.HTTP_200_OK)
+async def get_ai_dead_letter_queue(
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
+    payload = await list_ai_dead_letter_jobs(limit=limit, offset=offset)
+    return AIGamifyDLQListRead.model_validate(payload)
+
+
+@router.post("/ops/dlq/{queue_index}/requeue", response_model=AIGamifyDLQRequeueRead, status_code=status.HTTP_200_OK)
+async def requeue_ai_dead_letter_queue_item(
+    queue_index: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
+    payload = await requeue_ai_dead_letter_job(db, queue_index=queue_index)
+    return AIGamifyDLQRequeueRead.model_validate(payload)
+
+
+@router.delete("/ops/dlq/{queue_index}", response_model=AIGamifyDLQDiscardRead, status_code=status.HTTP_200_OK)
+async def discard_ai_dead_letter_queue_item(
+    queue_index: int,
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
+    payload = await discard_ai_dead_letter_job(queue_index=queue_index)
+    return AIGamifyDLQDiscardRead.model_validate(payload)
+
+
+@router.post("/ops/dlq/requeue-batch", response_model=AIGamifyDLQBatchActionRead, status_code=status.HTTP_200_OK)
+async def requeue_ai_dead_letter_queue_batch(
+    payload: AIGamifyDLQBatchActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
+    result = await requeue_ai_dead_letter_batch(db, max_items=payload.max_items)
+    return AIGamifyDLQBatchActionRead.model_validate(result)
+
+
+@router.post("/ops/dlq/discard-batch", response_model=AIGamifyDLQBatchActionRead, status_code=status.HTTP_200_OK)
+async def discard_ai_dead_letter_queue_batch(
+    payload: AIGamifyDLQBatchActionRequest,
+    current_user: User = Depends(require_roles("admin")),
+):
+    _ = current_user
+    result = await discard_ai_dead_letter_batch(max_items=payload.max_items)
+    return AIGamifyDLQBatchActionRead.model_validate(result)
