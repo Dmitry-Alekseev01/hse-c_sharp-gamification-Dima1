@@ -209,10 +209,12 @@ async def test_process_ai_gamification_job_recovers_with_semantic_fallback(db, m
     job = await ai_gamification_repo.create_job(db, created_by_user_id=user.id, payload=payload, source_snapshot=payload.raw_text)
     await db.commit()
 
-    calls = {"count": 0}
+    calls = {"count": 0, "constraints": []}
 
-    async def fake_generate(**_kwargs):
+    async def fake_generate(*, payload, source_text):
+        _ = source_text
         calls["count"] += 1
+        calls["constraints"].append(list(payload.constraints or []))
         if calls["count"] == 1:
             return AIGamifyGenerationResult(
                 draft=AIGamifyDraft(
@@ -261,4 +263,53 @@ async def test_process_ai_gamification_job_recovers_with_semantic_fallback(db, m
     assert refreshed.draft_json is not None
     assert refreshed.draft_json["draft_title"] == "Mission: Interface Contract"
     assert calls["count"] == 2
+    assert any("Mandatory: draft_title, story_frame and task_goal must be non-empty" in c for c in calls["constraints"][1])
     assert fake_redis._hashes.get("ai:gamify:metrics", {}).get("jobs_semantic_fallback_used") == 1
+
+
+async def test_process_ai_gamification_job_marks_failed_when_draft_is_too_short_semantically(db, monkeypatch):
+    from app.services import ai_gamification_service
+    from app.core.config import settings
+
+    fake_redis = _FakeRedis()
+    monkeypatch.setattr(ai_gamification_service, "get_redis_client", lambda: fake_redis)
+    monkeypatch.setattr(settings, "ai_gamification_job_max_retries", 0)
+
+    user = User(username="ai_worker_short_draft_user", password_hash="x", role="teacher")
+    db.add(user)
+    await db.flush()
+
+    payload = AIGamifyRequest(source_type="raw_text", raw_text="Explain generics in C#")
+    job = await ai_gamification_repo.create_job(db, created_by_user_id=user.id, payload=payload, source_snapshot=payload.raw_text)
+    await db.commit()
+
+    async def fake_generate(**_kwargs):
+        return AIGamifyGenerationResult(
+            draft=AIGamifyDraft(
+                draft_title="Quest",
+                story_frame="Short text",
+                task_goal="Too short",
+                game_rules=[],
+                hints=[],
+                rewards={"xp": 0, "badges": []},
+                acceptance_criteria=[],
+                teacher_notes=None,
+            ),
+            model="openrouter/free",
+            provider="openrouter",
+            usage={"total_tokens": 11},
+            latency_ms=11,
+            raw_response={},
+        )
+
+    monkeypatch.setattr("app.services.ai_gamification_service.generate_gamification_draft", fake_generate)
+
+    session_factory = async_sessionmaker(bind=db.bind, expire_on_commit=False)
+    await process_ai_gamification_job(job.id, session_factory=session_factory)
+
+    async with session_factory() as verify_session:
+        refreshed = await ai_gamification_repo.get_job(verify_session, job.id)
+    assert refreshed is not None
+    assert refreshed.status == "failed"
+    assert refreshed.error_text is not None
+    assert "semantically empty" in refreshed.error_text

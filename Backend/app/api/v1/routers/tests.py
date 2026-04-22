@@ -38,6 +38,7 @@ from app.schemas.test_content import TestContentRead
 from app.repositories import analytics_repo, test_repo, test_attempt_repo
 from app.repositories import question_repo
 from app.services import test_service
+from app.services.challenge_service import ChallengeEventType, record_event
 from app.services.test_runtime import AttemptPolicyError, finalize_attempt_if_expired, resolve_attempt_for_user
 
 router = APIRouter()
@@ -255,7 +256,19 @@ async def complete_test_attempt(
     if attempt.status == "completed":
         return attempt
     completed_attempt = await test_attempt_repo.complete_attempt(db, attempt)
-    await analytics_repo.register_completed_attempt(db, completed_attempt.user_id)
+    await analytics_repo.register_completed_attempt(db, completed_attempt.user_id, attempt_id=completed_attempt.id)
+    await record_event(
+        db,
+        user_id=completed_attempt.user_id,
+        event_type=ChallengeEventType.ATTEMPT_COMPLETED,
+        increment=1,
+    )
+    await record_event(
+        db,
+        user_id=completed_attempt.user_id,
+        event_type=ChallengeEventType.STREAK_DAY,
+        increment=1,
+    )
     return completed_attempt
 
 

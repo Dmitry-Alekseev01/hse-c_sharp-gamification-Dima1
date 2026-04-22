@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
@@ -46,6 +47,10 @@ AI_GAMIFY_METRICS_KEY = "ai:gamify:metrics"
 
 class AIGamificationDraftValidationError(ValueError):
     pass
+
+
+_WORD_RE = re.compile(r"[A-Za-z\u0400-\u04FF0-9]+", re.UNICODE)
+_SENTENCE_END_RE = re.compile(r"[.!?\u2026]")
 
 
 def _utc_day_key(now: datetime | None = None) -> str:
@@ -133,14 +138,35 @@ def _render_draft_text(draft: AIGamifyDraft) -> str:
 
 
 def _validate_draft_quality(draft: AIGamifyDraft) -> None:
-    def _is_blank(value: str | None) -> bool:
-        return value is None or len(value.strip()) < 3
+    def _normalize(value: str | None) -> str:
+        if value is None:
+            return ""
+        return " ".join(value.strip().split())
 
-    if _is_blank(draft.draft_title):
+    def _word_count(value: str) -> int:
+        return len(_WORD_RE.findall(value))
+
+    def _is_valid_title(value: str) -> bool:
+        if len(value) < 5:
+            return False
+        return _word_count(value) >= 2 or len(value) >= 12
+
+    def _is_sentence_like(value: str) -> bool:
+        if len(value) < 20:
+            return False
+        if _word_count(value) < 5:
+            return False
+        return bool(_SENTENCE_END_RE.search(value)) or len(value) >= 40
+
+    title = _normalize(draft.draft_title)
+    story = _normalize(draft.story_frame)
+    task_goal = _normalize(draft.task_goal)
+
+    if not _is_valid_title(title):
         raise AIGamificationDraftValidationError("AI draft is semantically empty: draft_title")
-    if _is_blank(draft.story_frame):
+    if not _is_sentence_like(story):
         raise AIGamificationDraftValidationError("AI draft is semantically empty: story_frame")
-    if _is_blank(draft.task_goal):
+    if not _is_sentence_like(task_goal):
         raise AIGamificationDraftValidationError("AI draft is semantically empty: task_goal")
 
 
@@ -421,6 +447,7 @@ async def retry_ai_gamification_job(
         redis = get_redis_client()
         await redis.delete(f"{AI_GAMIFY_RETRY_KEY_PREFIX}:{job.id}")
         await enqueue_ai_job(job.id)
+        await _bump_ai_metric("jobs_retried")
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -452,6 +479,203 @@ async def get_ai_ops_metrics() -> dict:
         "jobs_retried": _to_int(metrics_raw.get("jobs_retried")),
         "jobs_semantic_fallback_used": _to_int(metrics_raw.get("jobs_semantic_fallback_used")),
     }
+
+
+def _parse_dlq_payload(raw_payload: str) -> dict:
+    try:
+        data = json.loads(raw_payload)
+    except Exception:
+        data = {}
+
+    job_id = data.get("job_id")
+    try:
+        parsed_job_id = int(job_id) if job_id is not None else None
+    except Exception:
+        parsed_job_id = None
+
+    error = data.get("error")
+    if error is not None:
+        error = str(error)
+
+    return {
+        "job_id": parsed_job_id,
+        "error": error,
+        "raw_payload": raw_payload,
+    }
+
+
+async def list_ai_dead_letter_jobs(*, limit: int = 20, offset: int = 0) -> dict:
+    redis = get_redis_client()
+    safe_limit = min(max(int(limit), 1), 200)
+    safe_offset = max(int(offset), 0)
+
+    total = int(await redis.llen(AI_GAMIFY_DLQ))
+    if safe_offset >= total:
+        return {"items": [], "limit": safe_limit, "offset": safe_offset, "total": total}
+
+    raw_items = await redis.lrange(AI_GAMIFY_DLQ, safe_offset, safe_offset + safe_limit - 1)
+    items = []
+    for index, raw_payload in enumerate(raw_items, start=safe_offset):
+        parsed = _parse_dlq_payload(raw_payload)
+        items.append(
+            {
+                "queue_index": index,
+                "job_id": parsed["job_id"],
+                "error": parsed["error"],
+                "raw_payload": parsed["raw_payload"],
+            }
+        )
+
+    return {"items": items, "limit": safe_limit, "offset": safe_offset, "total": total}
+
+
+async def _dlq_list_all(redis) -> list[str]:
+    return list(await redis.lrange(AI_GAMIFY_DLQ, 0, -1))
+
+
+async def _dlq_replace_all(redis, items: list[str]) -> None:
+    await redis.delete(AI_GAMIFY_DLQ)
+    for item in items:
+        await redis.rpush(AI_GAMIFY_DLQ, item)
+
+
+async def _dlq_remove_by_index(redis, queue_index: int) -> str:
+    all_items = await _dlq_list_all(redis)
+    if queue_index < 0 or queue_index >= len(all_items):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DLQ item not found")
+
+    removed_payload = all_items[queue_index]
+    remaining = all_items[:queue_index] + all_items[queue_index + 1 :]
+
+    await _dlq_replace_all(redis, remaining)
+
+    return removed_payload
+
+
+async def requeue_ai_dead_letter_job(
+    db: AsyncSession,
+    *,
+    queue_index: int,
+) -> dict:
+    redis = get_redis_client()
+
+    all_items = await _dlq_list_all(redis)
+    if queue_index < 0 or queue_index >= len(all_items):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DLQ item not found")
+    raw_payload = all_items[queue_index]
+    parsed = _parse_dlq_payload(raw_payload)
+    job_id = parsed["job_id"]
+    if job_id is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="DLQ item has no valid job_id")
+
+    job = await ai_gamification_repo.get_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found for DLQ item")
+    if job.status != "failed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only failed jobs can be requeued from DLQ")
+
+    await ai_gamification_repo.reset_job_for_retry(db, job)
+
+    removed_payload = await _dlq_remove_by_index(redis, queue_index)
+    try:
+        await redis.delete(f"{AI_GAMIFY_RETRY_KEY_PREFIX}:{job.id}")
+        await enqueue_ai_job(job.id)
+        await _bump_ai_metric("jobs_retried")
+    except Exception as exc:
+        # Restore payload into DLQ to avoid silent data loss on enqueue failure.
+        try:
+            await redis.rpush(AI_GAMIFY_DLQ, removed_payload)
+        except Exception:
+            logger.exception("Failed to restore DLQ payload after requeue error")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Unable to requeue DLQ job: {exc}",
+        )
+
+    return {"queue_index": queue_index, "job_id": job.id, "status": "pending"}
+
+
+async def discard_ai_dead_letter_job(*, queue_index: int) -> dict:
+    redis = get_redis_client()
+    await _dlq_remove_by_index(redis, queue_index)
+    return {"queue_index": queue_index, "removed": True}
+
+
+async def requeue_ai_dead_letter_batch(
+    db: AsyncSession,
+    *,
+    max_items: int = 20,
+) -> dict:
+    redis = get_redis_client()
+    safe_max_items = min(max(int(max_items), 1), 500)
+
+    all_items = await _dlq_list_all(redis)
+    if not all_items:
+        return {"scanned": 0, "requeued": 0, "discarded": 0, "skipped": 0, "failures": []}
+
+    kept_items: list[str] = []
+    failures: list[str] = []
+    scanned = 0
+    requeued = 0
+    skipped = 0
+
+    for index, raw_payload in enumerate(all_items):
+        if index >= safe_max_items:
+            kept_items.append(raw_payload)
+            continue
+
+        scanned += 1
+        parsed = _parse_dlq_payload(raw_payload)
+        job_id = parsed["job_id"]
+        if job_id is None:
+            skipped += 1
+            kept_items.append(raw_payload)
+            continue
+
+        job = await ai_gamification_repo.get_job(db, job_id)
+        if job is None:
+            skipped += 1
+            kept_items.append(raw_payload)
+            continue
+        if job.status != "failed":
+            skipped += 1
+            kept_items.append(raw_payload)
+            continue
+
+        await ai_gamification_repo.reset_job_for_retry(db, job)
+        try:
+            await redis.delete(f"{AI_GAMIFY_RETRY_KEY_PREFIX}:{job.id}")
+            await enqueue_ai_job(job.id)
+            await _bump_ai_metric("jobs_retried")
+            requeued += 1
+        except Exception as exc:
+            await ai_gamification_repo.set_job_failed(db, job, error_text=f"DLQ batch requeue failed: {exc}")
+            failures.append(f"job_id={job.id}: {exc}")
+            kept_items.append(raw_payload)
+
+    await _dlq_replace_all(redis, kept_items)
+    return {
+        "scanned": scanned,
+        "requeued": requeued,
+        "discarded": 0,
+        "skipped": skipped,
+        "failures": failures,
+    }
+
+
+async def discard_ai_dead_letter_batch(*, max_items: int = 20) -> dict:
+    redis = get_redis_client()
+    safe_max_items = min(max(int(max_items), 1), 500)
+
+    all_items = await _dlq_list_all(redis)
+    if not all_items:
+        return {"scanned": 0, "requeued": 0, "discarded": 0, "skipped": 0, "failures": []}
+
+    scanned = min(len(all_items), safe_max_items)
+    discarded = scanned
+    remaining = all_items[scanned:]
+    await _dlq_replace_all(redis, remaining)
+    return {"scanned": scanned, "requeued": 0, "discarded": discarded, "skipped": 0, "failures": []}
 
 
 async def get_job_for_user(db: AsyncSession, job_id: int, current_user: User):

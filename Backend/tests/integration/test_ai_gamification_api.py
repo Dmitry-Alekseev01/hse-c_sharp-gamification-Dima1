@@ -62,6 +62,16 @@ class _FakeRedis:
     async def llen(self, key: str):
         return len(self._lists.get(key, []))
 
+    async def lrange(self, key: str, start: int, end: int):
+        items = list(self._lists.get(key, []))
+        if not items:
+            return []
+        safe_start = max(int(start), 0)
+        safe_end = int(end)
+        if safe_end < 0:
+            safe_end = len(items) - 1
+        return items[safe_start : safe_end + 1]
+
     async def delete(self, key: str):
         removed = 0
         if key in self._counters:
@@ -432,6 +442,7 @@ async def test_ai_retry_failed_job_and_ops_metrics(client, db, monkeypatch):
     assert payload["queued_jobs"] >= 3
     assert payload["dead_letter_jobs"] == 1
     assert payload["jobs_processed"] == 5
+    assert payload["jobs_retried"] == 2
     assert payload["jobs_semantic_fallback_used"] == 4
 
 
@@ -459,3 +470,134 @@ async def test_ai_ops_metrics_admin_smoke_with_valid_token(client, db, monkeypat
     assert payload["jobs_failed"] == 1
     assert payload["jobs_retried"] == 1
     assert payload["jobs_semantic_fallback_used"] == 1
+
+
+async def test_ai_ops_dlq_admin_only_and_payload(client, db, monkeypatch):
+    from app.services import ai_gamification_service
+
+    fake_redis = _FakeRedis()
+    fake_redis._lists["ai:gamify:dlq"] = [
+        '{"job_id": 42, "error": "provider timeout"}',
+        "not-json-payload",
+    ]
+    monkeypatch.setattr(ai_gamification_service, "get_redis_client", lambda: fake_redis)
+
+    teacher = await seed_user(db, username="ai_dlq_teacher@example.com", password="teacher123", role="teacher")
+    admin = await seed_user(db, username="ai_dlq_admin@example.com", password="admin123", role="admin")
+    teacher_token = await login(client, teacher.username, "teacher123")
+    admin_token = await login(client, admin.username, "admin123")
+
+    teacher_response = await client.get("/api/v1/ai/ops/dlq", headers=auth_headers(teacher_token))
+    assert teacher_response.status_code == 403, teacher_response.text
+
+    admin_response = await client.get(
+        "/api/v1/ai/ops/dlq?limit=10&offset=0",
+        headers=auth_headers(admin_token),
+    )
+    assert admin_response.status_code == 200, admin_response.text
+    payload = admin_response.json()
+    assert payload["total"] == 2
+    assert payload["limit"] == 10
+    assert payload["offset"] == 0
+    assert len(payload["items"]) == 2
+    assert payload["items"][0]["job_id"] == 42
+    assert payload["items"][0]["error"] == "provider timeout"
+    assert payload["items"][0]["queue_index"] == 0
+    assert payload["items"][1]["job_id"] is None
+    assert payload["items"][1]["raw_payload"] == "not-json-payload"
+
+
+async def test_ai_ops_dlq_requeue_and_discard(client, db, monkeypatch):
+    from app.services import ai_gamification_service
+
+    fake_redis = _FakeRedis()
+    monkeypatch.setattr(ai_gamification_service, "get_redis_client", lambda: fake_redis)
+
+    admin = await seed_user(db, username="ai_dlq_action_admin@example.com", password="admin123", role="admin")
+    admin_token = await login(client, admin.username, "admin123")
+
+    failed_job = await seed_completed_ai_job(db, created_by_user_id=admin.id, source_type="raw_text")
+    await ai_gamification_repo.set_job_failed(db, failed_job, error_text="provider timeout")
+    await db.commit()
+
+    fake_redis._lists["ai:gamify:dlq"] = [
+        '{"job_id": %d, "error": "provider timeout"}' % failed_job.id,
+        "broken-payload",
+    ]
+
+    requeue_response = await client.post(
+        "/api/v1/ai/ops/dlq/0/requeue",
+        headers=auth_headers(admin_token),
+    )
+    assert requeue_response.status_code == 200, requeue_response.text
+    requeue_payload = requeue_response.json()
+    assert requeue_payload["job_id"] == failed_job.id
+    assert requeue_payload["status"] == "pending"
+
+    refreshed = await ai_gamification_repo.get_job(db, failed_job.id)
+    assert refreshed is not None
+    assert refreshed.status == "pending"
+    assert len(fake_redis._lists.get("ai:gamify", [])) == 1
+
+    discard_response = await client.delete(
+        "/api/v1/ai/ops/dlq/0",
+        headers=auth_headers(admin_token),
+    )
+    assert discard_response.status_code == 200, discard_response.text
+    discard_payload = discard_response.json()
+    assert discard_payload["queue_index"] == 0
+    assert discard_payload["removed"] is True
+
+    # DLQ should now be empty after requeue+discard actions.
+    dlq_after = await client.get("/api/v1/ai/ops/dlq", headers=auth_headers(admin_token))
+    assert dlq_after.status_code == 200, dlq_after.text
+    assert dlq_after.json()["total"] == 0
+
+
+async def test_ai_ops_dlq_batch_actions(client, db, monkeypatch):
+    from app.services import ai_gamification_service
+
+    fake_redis = _FakeRedis()
+    monkeypatch.setattr(ai_gamification_service, "get_redis_client", lambda: fake_redis)
+
+    admin = await seed_user(db, username="ai_dlq_batch_admin@example.com", password="admin123", role="admin")
+    admin_token = await login(client, admin.username, "admin123")
+
+    failed_job = await seed_completed_ai_job(db, created_by_user_id=admin.id, source_type="raw_text")
+    await ai_gamification_repo.set_job_failed(db, failed_job, error_text="provider timeout")
+    await db.commit()
+
+    fake_redis._lists["ai:gamify:dlq"] = [
+        '{"job_id": %d, "error": "provider timeout"}' % failed_job.id,
+        "broken-payload",
+        '{"job_id": 999999, "error": "unknown job"}',
+    ]
+
+    batch_requeue = await client.post(
+        "/api/v1/ai/ops/dlq/requeue-batch",
+        headers=auth_headers(admin_token),
+        json={"max_items": 3},
+    )
+    assert batch_requeue.status_code == 200, batch_requeue.text
+    requeue_payload = batch_requeue.json()
+    assert requeue_payload["scanned"] == 3
+    assert requeue_payload["requeued"] == 1
+    assert requeue_payload["skipped"] == 2
+    assert requeue_payload["discarded"] == 0
+    assert requeue_payload["failures"] == []
+    assert len(fake_redis._lists.get("ai:gamify", [])) == 1
+
+    batch_discard = await client.post(
+        "/api/v1/ai/ops/dlq/discard-batch",
+        headers=auth_headers(admin_token),
+        json={"max_items": 10},
+    )
+    assert batch_discard.status_code == 200, batch_discard.text
+    discard_payload = batch_discard.json()
+    assert discard_payload["discarded"] == 2
+    assert discard_payload["requeued"] == 0
+    assert discard_payload["skipped"] == 0
+
+    dlq_after = await client.get("/api/v1/ai/ops/dlq", headers=auth_headers(admin_token))
+    assert dlq_after.status_code == 200, dlq_after.text
+    assert dlq_after.json()["total"] == 0

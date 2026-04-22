@@ -215,6 +215,134 @@ components:
           items:
             $ref: '#/components/schemas/GamificationBadgeRead'
 
+    UserAchievementRead:
+      type: object
+      properties:
+        code: { type: string }
+        title: { type: string }
+        description: { type: string }
+        reward: { type: string, nullable: true }
+        criteria_type: { type: string }
+        threshold_value: { type: integer }
+        earned: { type: boolean }
+        earned_at: { type: string, format: date-time, nullable: true }
+
+    PointsLedgerEntryRead:
+      type: object
+      properties:
+        id: { type: integer }
+        user_id: { type: integer }
+        delta: { type: number, format: float }
+        reason_code: { type: string }
+        source_type: { type: string, nullable: true }
+        source_id: { type: integer, nullable: true }
+        idempotency_key: { type: string, nullable: true }
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at: { type: string, format: date-time }
+
+    PointsLedgerPageRead:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PointsLedgerEntryRead' }
+        limit: { type: integer }
+        offset: { type: integer }
+
+    ChallengeCreate:
+      type: object
+      required: [code, title, period_type, event_type, target_value]
+      properties:
+        code: { type: string }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        period_type:
+          type: string
+          enum: [daily, weekly]
+        event_type:
+          type: string
+          enum: [answer_submitted, attempt_completed, streak_day]
+        target_value: { type: integer, minimum: 1 }
+        reward_points: { type: number, format: float, default: 0 }
+        is_active: { type: boolean, default: true }
+        starts_at: { type: string, format: date-time, nullable: true }
+        ends_at: { type: string, format: date-time, nullable: true }
+
+    ChallengeRead:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        period_type:
+          type: string
+          enum: [daily, weekly]
+        event_type:
+          type: string
+          enum: [answer_submitted, attempt_completed, streak_day]
+        target_value: { type: integer }
+        reward_points: { type: number, format: float }
+        is_active: { type: boolean }
+        starts_at: { type: string, format: date-time, nullable: true }
+        ends_at: { type: string, format: date-time, nullable: true }
+        created_by: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    UserChallengeProgressRead:
+      type: object
+      properties:
+        challenge_id: { type: integer }
+        code: { type: string }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        period_type:
+          type: string
+          enum: [daily, weekly]
+        event_type:
+          type: string
+          enum: [answer_submitted, attempt_completed, streak_day]
+        target_value: { type: integer }
+        reward_points: { type: number, format: float }
+        period_key: { type: string }
+        progress_value: { type: integer }
+        is_completed: { type: boolean }
+        is_claimed: { type: boolean }
+        completed_at: { type: string, format: date-time, nullable: true }
+        claimed_at: { type: string, format: date-time, nullable: true }
+
+    ChallengeClaimRead:
+      type: object
+      properties:
+        challenge_id: { type: integer }
+        period_key: { type: string }
+        reward_points: { type: number, format: float }
+        claimed_at: { type: string, format: date-time }
+
+    SeasonCreate:
+      type: object
+      required: [code, title, starts_at, ends_at]
+      properties:
+        code: { type: string }
+        title: { type: string }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        is_active: { type: boolean, default: true }
+
+    SeasonRead:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        title: { type: string }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        is_active: { type: boolean }
+        created_by: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+
     GamificationBadgeRead:
       type: object
       properties:
@@ -480,6 +608,59 @@ components:
         jobs_failed: { type: integer }
         jobs_retried: { type: integer }
         jobs_semantic_fallback_used: { type: integer }
+
+    AIGamifyDLQEntryRead:
+      type: object
+      properties:
+        queue_index: { type: integer }
+        job_id: { type: integer, nullable: true }
+        error: { type: string, nullable: true }
+        raw_payload: { type: string }
+
+    AIGamifyDLQListRead:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AIGamifyDLQEntryRead' }
+        limit: { type: integer }
+        offset: { type: integer }
+        total: { type: integer }
+
+    AIGamifyDLQRequeueRead:
+      type: object
+      properties:
+        queue_index: { type: integer }
+        job_id: { type: integer }
+        status:
+          type: string
+          enum: [pending]
+
+    AIGamifyDLQDiscardRead:
+      type: object
+      properties:
+        queue_index: { type: integer }
+        removed: { type: boolean }
+
+    AIGamifyDLQBatchActionRequest:
+      type: object
+      properties:
+        max_items:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 20
+
+    AIGamifyDLQBatchActionRead:
+      type: object
+      properties:
+        scanned: { type: integer }
+        requeued: { type: integer }
+        discarded: { type: integer }
+        skipped: { type: integer }
+        failures:
+          type: array
+          items: { type: string }
 
 paths:
   /health/live:
@@ -841,8 +1022,68 @@ paths:
   /api/v1/analytics/leaderboard:
     get:
       summary: Leaderboard
+      parameters:
+        - in: query
+          name: scope
+          required: false
+          schema: { type: string, enum: [global, group], default: global }
+        - in: query
+          name: period
+          required: false
+          schema: { type: string, enum: [all_time, week, season], default: all_time }
+        - in: query
+          name: group_id
+          required: false
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: season_id
+          required: false
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
       responses:
         '200': { description: List of leaderboard rows }
+        '400': { description: Invalid scope/period params }
+        '403': { description: Insufficient permissions for group scope }
+        '404': { description: Season/group not found }
+
+  /api/v1/analytics/seasons:
+    get:
+      summary: List seasons
+      parameters:
+        - in: query
+          name: active_only
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: List of seasons
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SeasonRead' }
+    post:
+      summary: Create season (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SeasonCreate' }
+      responses:
+        '201':
+          description: Season created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonRead' }
+        '400': { description: Invalid season payload }
+        '403': { description: Admin role required }
 
   /api/v1/analytics/user/{user_id}/progress:
     get:
@@ -852,6 +1093,120 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UserGamificationProgressRead' }
+
+  /api/v1/analytics/me/achievements:
+    get:
+      summary: Current user achievements (persistent)
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/UserAchievementRead' }
+
+  /api/v1/analytics/me/points-ledger:
+    get:
+      summary: Current user points ledger
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PointsLedgerPageRead' }
+
+  /api/v1/analytics/challenges:
+    post:
+      summary: Create challenge (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChallengeCreate' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChallengeRead' }
+        '400': { description: Invalid challenge payload }
+        '403': { description: Admin role required }
+
+  /api/v1/analytics/me/challenges/active:
+    get:
+      summary: Active challenges with progress for current user
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/UserChallengeProgressRead' }
+
+  /api/v1/analytics/me/challenges/{challenge_id}/claim:
+    post:
+      summary: Claim completed challenge reward for current period
+      parameters:
+        - in: path
+          name: challenge_id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChallengeClaimRead' }
+        '404': { description: Challenge not found }
+        '409': { description: Challenge is not completed or already claimed }
+
+  /api/v1/analytics/user/{user_id}/achievements:
+    get:
+      summary: Student achievements for teacher/admin (teacher must manage student via group)
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/UserAchievementRead' }
+        '403': { description: Insufficient permissions }
+        '404': { description: User not found }
+
+  /api/v1/analytics/user/{user_id}/points-ledger:
+    get:
+      summary: Student points ledger for teacher/admin (teacher must manage student via group)
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema: { type: integer }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PointsLedgerPageRead' }
+        '403': { description: Insufficient permissions }
+        '404': { description: User not found }
 
   /api/v1/analytics/overview:
     get:
@@ -1033,4 +1388,87 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AIGamifyOpsMetricsRead' }
+        '403': { description: Admin role required }
+
+  /api/v1/ai/ops/dlq:
+    get:
+      summary: AI dead-letter queue entries (admin)
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyDLQListRead' }
+        '403': { description: Admin role required }
+
+  /api/v1/ai/ops/dlq/{queue_index}/requeue:
+    post:
+      summary: Requeue AI dead-letter queue item (admin)
+      parameters:
+        - in: path
+          name: queue_index
+          required: true
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyDLQRequeueRead' }
+        '403': { description: Admin role required }
+        '404': { description: DLQ item or job not found }
+        '409': { description: Invalid DLQ item payload or job status }
+        '503': { description: Requeue backend unavailable }
+
+  /api/v1/ai/ops/dlq/{queue_index}:
+    delete:
+      summary: Discard AI dead-letter queue item (admin)
+      parameters:
+        - in: path
+          name: queue_index
+          required: true
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyDLQDiscardRead' }
+        '403': { description: Admin role required }
+        '404': { description: DLQ item not found }
+
+  /api/v1/ai/ops/dlq/requeue-batch:
+    post:
+      summary: Requeue multiple AI dead-letter items (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIGamifyDLQBatchActionRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyDLQBatchActionRead' }
+        '403': { description: Admin role required }
+
+  /api/v1/ai/ops/dlq/discard-batch:
+    post:
+      summary: Discard multiple AI dead-letter items (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIGamifyDLQBatchActionRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIGamifyDLQBatchActionRead' }
         '403': { description: Admin role required }

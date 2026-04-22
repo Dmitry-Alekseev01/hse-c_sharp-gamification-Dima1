@@ -73,6 +73,17 @@ AI-геймификация нужна, чтобы:
 - `GET /ops/metrics`  
   Операционные метрики AI-пайплайна (только admin).
 
+- `GET /ops/dlq`  
+  Просмотр dead-letter очереди (только admin) для диагностики упавших job.
+- `POST /ops/dlq/{queue_index}/requeue`  
+  Переотправка конкретного элемента DLQ обратно в рабочую очередь (только admin).
+- `DELETE /ops/dlq/{queue_index}`  
+  Удаление (discard) конкретного элемента DLQ (только admin).
+- `POST /ops/dlq/requeue-batch`  
+  Пакетная переотправка элементов DLQ (только admin).
+- `POST /ops/dlq/discard-batch`  
+  Пакетное удаление элементов DLQ (только admin).
+
 Полный контракт и схемы: `Backend/docs/api-contract.yaml`.
 
 ## 6. Жизненный цикл job
@@ -120,6 +131,27 @@ AI-геймификация нужна, чтобы:
 - `jobs_failed`
 - `jobs_retried`
 - `jobs_semantic_fallback_used`
+
+`GET /api/v1/ai/ops/dlq` возвращает:
+- элементы DLQ с `job_id`, `error`, `queue_index`, `raw_payload`;
+- пагинацию `limit/offset/total` для безопасного просмотра очереди в проде.
+
+`POST /api/v1/ai/ops/dlq/{queue_index}/requeue`:
+- валидирует, что элемент содержит корректный `job_id`;
+- валидирует, что связанный job находится в `failed`;
+- сбрасывает job в `pending`, удаляет retry-key и ставит job обратно в `ai:gamify`.
+
+`DELETE /api/v1/ai/ops/dlq/{queue_index}`:
+- удаляет элемент из DLQ без переотправки (операторский discard).
+
+`POST /api/v1/ai/ops/dlq/requeue-batch`:
+- сканирует первые `max_items` элементов DLQ;
+- переотправляет только корректные элементы с существующим `failed` job;
+- возвращает `scanned/requeued/skipped/failures`.
+
+`POST /api/v1/ai/ops/dlq/discard-batch`:
+- удаляет первые `max_items` элементов DLQ;
+- возвращает агрегированный результат операции.
 
 Практический смысл:
 - рост `jobs_failed`/`dead_letter_jobs` -> проблемы провайдера/промпта;
